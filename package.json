@@ -39,5 +39,13 @@
   },
   "scripts": {
     "test": "node --test"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/huangxiaoliang/deepclean-mydisk-plugin.git"
+  },
+  "bugs": {
+    "url": "https://github.com/huangxiaoliang/deepclean-mydisk-plugin/issues"
+  },
+  "homepage": "https://github.com/huangxiaoliang/deepclean-mydisk-plugin#readme"
 }

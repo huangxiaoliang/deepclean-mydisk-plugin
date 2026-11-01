@@ -1,5 +1,13 @@
 # deepclean-mydisk
 
+## 独立项目
+
+本目录是一个**独立 Git 仓库/项目**，位于 `~/Documents/deepseek-harness/plugins/deepclean-mydisk-plugin`：
+
+- 不依赖 `deepclean-mydisk` skill 仓库，也不依赖 `default-workspace`；
+- 扫描器内置于 `resources/`（与 skill 同源、独立维护，可选用 `scripts/sync-scanner.sh` 同步）；
+- 有自己的许可证、测试、CI、Windows 验收文档与发布流程。
+
 > 仓库：https://github.com/huangxiaoliang/deepclean-mydisk-plugin
 > 安装：`dsh plugin --profile desktop add github:huangxiaoliang/deepclean-mydisk-plugin`（或本地 `file:/绝对路径`）
 > 测试：`npm test`（50 个用例；GitHub Actions 矩阵 macOS + Windows）
