@@ -2,7 +2,8 @@
 
 > 仓库：https://github.com/huangxiaoliang/deepclean-mydisk-plugin
 > 安装：`dsh plugin --profile desktop add github:huangxiaoliang/deepclean-mydisk-plugin`（或本地 `file:/绝对路径`）
-> 测试：`npm test`（17 个用例；GitHub Actions 矩阵 macOS + Windows）
+> 测试：`npm test`（50 个用例；GitHub Actions 矩阵 macOS + Windows）
+> Windows 真机验收：`docs/windows-acceptance.md` + `scripts/acceptance-windows.ps1`
 
 DSH 插件：只读磁盘体检（macOS / Windows），提供**原生侧边栏页面** + 3 个模型工具。
 
