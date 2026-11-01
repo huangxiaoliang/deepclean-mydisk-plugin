@@ -78,7 +78,7 @@ const mockOverview = {
   },
 }
 const mockPhotos = { scanned: 100, compared: 100, elapsed: 5, groups: [
-  { id: 'g1', items: [{ path: '/tmp/a.jpg', kb: 2000, mtime: 1 }, { path: '/tmp/b.jpg', kb: 1500, mtime: 2 }], totalKb: 3500, wastedKb: 1500 },
+  { id: 'g1', items: [{ path: '/tmp/p1/a.jpg', kb: 2000, mtime: 1 }, { path: '/tmp/p2/b.jpg', kb: 1500, mtime: 2 }], totalKb: 3500, wastedKb: 1500 },
 ] }
 
 function renderWithData(mutate, lang) {
@@ -126,4 +126,12 @@ test('clean page shows overview counts and selection tools', () => {
   for (const t of ['全选', '清空', '选择 ≥', '已卸载 App 的缓存']) assert.match(zh, new RegExp(t))
   const en = renderWithData(mutate, 'en')
   for (const t of ['Select all', 'Clear', 'Select ≥']) assert.match(en, new RegExp(t))
+})
+
+test('photos page shows keep rules, folder filter and compare', () => {
+  const mutate = cases.find(([n]) => n === 'clean-photos')[1]
+  const zh = renderWithData(mutate, 'zh')
+  for (const t of ['保留策略', '对比', '全部文件夹']) assert.match(zh, new RegExp(t))
+  const en = renderWithData(mutate, 'en')
+  for (const t of ['Keep rule', 'Compare', 'All folders']) assert.match(en, new RegExp(t))
 })
