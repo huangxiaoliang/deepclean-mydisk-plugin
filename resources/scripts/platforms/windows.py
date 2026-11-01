@@ -15,7 +15,7 @@ import tempfile
 import time
 from pathlib import Path
 
-VERSION = "0.4.4"
+VERSION = "0.5.0"
 PLATFORM = "windows"
 FILE_ATTRIBUTE_REPARSE_POINT = 0x400
 SCAN_BUDGET_SEC = 120

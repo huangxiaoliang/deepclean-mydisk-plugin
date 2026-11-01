@@ -15,7 +15,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-VERSION = "0.4.4"
+VERSION = "0.5.0"
 HERE = Path(__file__).resolve().parent
 MACOS = HERE / "scan.py"
 WINDOWS = HERE / "platforms" / "windows.py"
