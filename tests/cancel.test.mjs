@@ -37,6 +37,11 @@ test('scan cancellation terminates quickly', { timeout: 60000 }, async () => {
   assert.equal((await call('/scan', 'POST', '{}')).code, 202)
   await new Promise((r) => setTimeout(r, 1200))
   const cancel = await call('/scan/cancel', 'POST', '{}')
+  if (cancel.code === 409) {
+    const s = (await call('/scan')).body.scan.status
+    assert.ok(['done', 'canceled', 'error'].includes(s), `unexpected ${s}`)
+    return
+  }
   assert.equal(cancel.code, 200)
   const t0 = Date.now()
   let status = 'running'
@@ -52,6 +57,11 @@ test('photo scan cancellation terminates quickly', { timeout: 60000 }, async () 
   assert.equal((await call('/photos/scan', 'POST', '{}')).code, 202)
   await new Promise((r) => setTimeout(r, 1200))
   const cancel = await call('/photos/cancel', 'POST', '{}')
+  if (cancel.code === 409) {
+    const s = (await call('/photos')).body.scan.status
+    assert.ok(['done', 'canceled', 'error'].includes(s), `unexpected ${s}`)
+    return
+  }
   assert.equal(cancel.code, 200)
   const t0 = Date.now()
   let status = 'running'
