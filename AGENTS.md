@@ -8,13 +8,13 @@ DSH 插件：原生侧边栏磁盘清理（macOS/Windows），只读体检 + 可
 - `lib/clean.js`：移动/撤销/跨盘校验（唯一允许写文件的地方，且只移到废纸篓/隔离区）
 - `lib/client.js`：浏览器端（`window.__ModuleLoader__.load` 手写 bundle，无构建步骤）
 - `resources/`：内置 Python 扫描器（与 deepclean-mydisk skill 同源，独立维护）
-- `tests/`：node:test 测试（50 个用例）
+- `tests/`：node:test 测试（55 个用例）
 - `docs/windows-acceptance.md` + `scripts/acceptance-windows.ps1`：Windows 真机验收
 - `.github/workflows/tests.yml`：macOS + Windows CI
 
 ## 常用命令
 ```bash
-npm test                              # 50 个测试
+npm test                              # 55 个测试
 node --check lib/index.js lib/client.js lib/clean.js
 python3 resources/scripts/deepclean.py --self-test
 ```
