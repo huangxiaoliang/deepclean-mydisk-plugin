@@ -119,3 +119,11 @@ test('wizard shows recommended items with data', () => {
   assert.match(html, /清理推荐项/)
   assert.match(html, /Test Media/)
 })
+
+test('clean page shows overview counts and selection tools', () => {
+  const mutate = cases.find(([n]) => n === 'clean-junk')[1]
+  const zh = renderWithData(mutate, 'zh')
+  for (const t of ['全选', '清空', '选择 ≥', '已卸载 App 的缓存']) assert.match(zh, new RegExp(t))
+  const en = renderWithData(mutate, 'en')
+  for (const t of ['Select all', 'Clear', 'Select ≥']) assert.match(en, new RegExp(t))
+})
