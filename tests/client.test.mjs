@@ -35,10 +35,13 @@ test('client bundle renders Chinese and English', () => {
   const zh = loadPanel('zh')
   const zhHtml = renderToString(require('react').createElement(zh.regs.find((r) => r.spec.name === 'main').comp))
   assert.match(zhHtml, /快速扫描/)
+  for (const label of ['体检', '空间', '清理', '历史', '设置']) assert.match(zhHtml, new RegExp(label))
   const en = loadPanel('en')
   const enHtml = renderToString(require('react').createElement(en.regs.find((r) => r.spec.name === 'main').comp))
   assert.match(enHtml, /Quick scan/)
   assert.doesNotMatch(enHtml, /快速扫描/)
+  for (const label of ['Checkup', 'Space', 'Clean', 'History', 'Settings']) assert.match(enHtml, new RegExp(label))
+  assert.doesNotMatch(enHtml, /Similar photos/)
 })
 
 test('client bundle contains safety copy and platform-aware commands', () => {
