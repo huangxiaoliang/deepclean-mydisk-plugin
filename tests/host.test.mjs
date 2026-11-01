@@ -40,7 +40,7 @@ async function call(p, method = 'GET', body) {
 }
 
 test('host registers expected routes', () => {
-  for (const p of ['/overview', '/scan', '/scan/cancel', '/clean', '/undo', '/history', '/restore', '/whitelist', '/photos', '/photos/scan', '/thumb', '/move', '/move/cancel', '/tree', '/reveal', '/state', '/permissions']) {
+  for (const p of ['/overview', '/disk', '/scan', '/scan/cancel', '/clean', '/undo', '/history', '/restore', '/whitelist', '/photos', '/photos/scan', '/thumb', '/move', '/move/cancel', '/tree', '/reveal', '/state', '/permissions']) {
     assert.ok(find(p), `missing route ${p}`)
   }
 })
@@ -49,6 +49,31 @@ test('state starts clean', async () => {
   const { code, body } = await call('/state')
   assert.equal(code, 200)
   assert.equal(body.canUndo, false)
+})
+
+test('overview exposes live disk usage before any scan', async () => {
+  const { code, body } = await call('/overview')
+  assert.equal(code, 200)
+  assert.equal(body.report, null, 'no scan has run yet')
+  assert.ok(body.disk, 'overview must include a live disk snapshot')
+  assert.ok(body.disk.total > 0, 'total must be positive')
+  assert.ok(body.disk.used >= 0)
+  assert.ok(body.disk.free >= 0)
+  assert.ok(Math.abs(body.disk.used + body.disk.free - body.disk.total) < 2, 'used + free == total')
+  assert.ok(typeof body.disk.mount === 'string' && body.disk.mount.length > 0)
+  assert.ok(Date.now() - body.disk.at < 60000, 'snapshot is fresh')
+})
+
+test('disk endpoint returns a live snapshot matching fs.statfs', async () => {
+  const { code, body } = await call('/disk')
+  assert.equal(code, 200)
+  assert.ok(body.disk, '/disk must return a snapshot')
+  assert.ok(Math.abs(body.disk.used + body.disk.free - body.disk.total) < 2, 'used + free == total')
+  const st = fs.statfsSync(body.disk.mount)
+  const free = st.bavail * st.bsize
+  const used = (st.blocks - st.bfree) * st.bsize
+  assert.ok(Math.abs(body.disk.free - free) < 64 * 1024 * 1024)
+  assert.ok(Math.abs(body.disk.used - used) < 64 * 1024 * 1024)
 })
 
 test('clean refuses without a fresh scan', async () => {

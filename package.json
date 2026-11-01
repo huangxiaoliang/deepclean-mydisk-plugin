@@ -1,6 +1,6 @@
 {
   "name": "deepclean-mydisk",
-  "version": "0.8.2",
+  "version": "0.9.0",
   "private": true,
   "description": "DeepClean MyDisk —— DSH 插件：只读磁盘体检 + 空间可视化 + 相似照片 + 微信/企微专清 + 跨盘搬家 + 可撤销清理。",
   "type": "module",

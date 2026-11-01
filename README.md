@@ -10,10 +10,19 @@
 
 > 仓库：https://github.com/huangxiaoliang/deepclean-mydisk-plugin
 > 安装：`dsh plugin --profile desktop add github:huangxiaoliang/deepclean-mydisk-plugin`（或本地 `file:/绝对路径`）
-> 测试：`npm test`（50 个用例；GitHub Actions 矩阵 macOS + Windows）
+> 测试：`npm test`（55 个用例；GitHub Actions 矩阵 macOS + Windows）
 > Windows 真机验收：`docs/windows-acceptance.md` + `scripts/acceptance-windows.ps1`
 
 DSH 插件：只读磁盘体检（macOS / Windows），提供**原生侧边栏页面** + 3 个模型工具。
+
+## v0.9.0 打开即显示磁盘容量
+
+- 打开面板立刻显示 **已用 / 总量 / 可用** 与环形图，不需要先跑体检；
+- 数据由宿主直接 `statfs` 读取（毫秒级、只读），不启动扫描、不碰用户文件；
+- 与扫描报告同口径：macOS 统计数据卷（`/System/Volumes/Data`），Windows 统计系统盘；
+- 标题栏常驻一行「共 X · 已用 Y」，任何子页都能看到；容量每 60 秒 / 回到前台时经轻量 `GET /api/disk` 刷新，清理后立刻回显；
+- 无扫描结果时可安全清理等估算显示「—」，避免误读为 0；
+- 新增 5 个测试（宿主容量快照 + 打开即显示 / 中英 / 回退渲染），共 55 个。
 
 ## v0.8.0 信息架构重构
 
