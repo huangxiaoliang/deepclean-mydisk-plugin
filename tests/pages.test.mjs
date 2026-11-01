@@ -31,6 +31,8 @@ const cases = [
   ['clean-photos', (s) => s.replace('useState("home")', 'useState("clean")').replace('useState("junk")', 'useState("photos")')],
   ['history', (s) => s.replace('useState("home")', 'useState("history")')],
   ['settings', (s) => s.replace('useState("home")', 'useState("settings")')],
+  ['home-wizard', (s) => s.replace('open: false, phase: "idle"', 'open: true, phase: "review"')],
+  ['home-wizard-confirm', (s) => s.replace('open: false, phase: "idle"', 'open: true, phase: "confirm"')],
 ]
 
 for (const [name, mutate] of cases) {
@@ -109,3 +111,11 @@ for (const [name, mutate] of cases) {
     assert.ok(html.length > 100)
   })
 }
+
+test('wizard shows recommended items with data', () => {
+  const mutate = cases.find(([n]) => n === 'home-wizard')[1]
+  const html = renderWithData(mutate, 'zh')
+  assert.match(html, /体检结果/)
+  assert.match(html, /清理推荐项/)
+  assert.match(html, /Test Media/)
+})
