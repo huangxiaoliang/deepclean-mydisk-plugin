@@ -1,0 +1,8 @@
+# 统一 LF，避免测试中「按源码字符串替换注入视图」在 Windows CRLF checkout 下失配。
+* text=auto eol=lf
+
+# 二进制资源不做换行转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
