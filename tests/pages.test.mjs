@@ -123,12 +123,13 @@ test('wizard shows recommended items with data', () => {
   assert.match(html, /Test Media/)
 })
 
-test('clean page shows overview counts and selection tools', () => {
+test('clean page separates content categories, risks and actions', () => {
   const mutate = cases.find(([n]) => n === 'clean-junk')[1]
   const zh = renderWithData(mutate, 'zh')
-  for (const t of ['全选', '清空', '选择 ≥', '已卸载 App 的缓存']) assert.match(zh, new RegExp(t))
+  for (const t of ['内容分类', '开发缓存', '浏览器缓存', '处理影响', '风险筛选', '移到废纸篓', '更多操作']) assert.ok(zh.includes(t), t)
+  assert.ok(!zh.includes('选择 ≥'), 'advanced batch operations should not crowd the toolbar')
   const en = renderWithData(mutate, 'en')
-  for (const t of ['Select all', 'Clear', 'Select ≥']) assert.match(en, new RegExp(t))
+  for (const t of ['Categories', 'Developer caches', 'Impact', 'Move to Trash', 'More actions']) assert.ok(en.includes(t), t)
 })
 
 test('photos page shows keep rules, folder filter and compare', () => {
@@ -152,25 +153,102 @@ const noScanOverview = {
 
 test('home shows live disk total/used before any scan', () => {
   const html = renderWithData((s) => s, 'zh', noScanOverview)
-  assert.match(html, /已用 400\.00G/)
-  assert.match(html, /共 500\.00G/)
-  assert.match(html, /可用 100\.00G/)
+  assert.match(html, /已用 400\.0 GB/)
+  assert.match(html, /总容量 500\.0 GB/)
+  assert.match(html, /当前可用 100\.0 GB/)
   assert.match(html, /实时/)
   assert.doesNotMatch(html, /可用 0B/, 'opening the panel must not show 0 B when a live snapshot exists')
-  assert.match(html, /还没有体检结果/)
+  assert.match(html, /看看哪些空间可以整理/)
 })
 
 test('english home shows live disk numbers before any scan', () => {
   const html = renderWithData((s) => s, 'en', noScanOverview)
-  assert.match(html, /Used 400\.00G/)
-  assert.match(html, /Total 500\.00G/)
-  assert.match(html, /Free 100\.00G/)
+  assert.match(html, /Used 400\.0 GB/)
+  assert.match(html, /Total 500\.0 GB/)
+  assert.match(html, /100\.0 GB available/)
   assert.match(html, /Live/)
 })
 
 test('home falls back to scan report disk when host has no live snapshot', () => {
   const html = renderWithData((s) => s, 'zh', { ...mockOverview, disk: undefined })
-  assert.match(html, /已用 372\.53G/)
-  assert.match(html, /共 465\.66G/)
+  assert.match(html, /已用 372\.5 GB/)
+  assert.match(html, /总容量 465\.7 GB/)
   assert.doesNotMatch(html, /实时/)
+})
+
+
+test('scan-in-progress shows pending categories instead of zero cleanup results', () => {
+  const mutate = (s) => cases.find(([n]) => n === 'clean-junk')[1](s)
+    .replaceAll('useState({ status: "idle" })', 'useState({ status: "running", progress: 40 })')
+  const html = renderWithData(mutate, 'zh', noScanOverview)
+  assert.ok(html.includes('待统计'))
+  assert.ok(html.includes('正在查找可整理的文件'))
+  assert.ok(!html.includes('0 项 · 0B'))
+  assert.ok(!html.includes('<table class="dc-file-table"'))
+})
+
+test('protected paths and read-only developer data never enter movable totals', () => {
+  const mutate = cases.find(([n]) => n === 'clean-junk')[1]
+  const overview = { ...mockOverview, whitelist: ['/tmp/dev-a'], report: { ...mockOverview.report,
+    leftoverGroups: [], caches: [], browsers: [], special: [] } }
+  const html = renderWithData(mutate, 'zh', overview)
+  assert.ok(html.includes('受保护'))
+  assert.ok(html.includes('需确认'))
+  assert.match(html, /建议处理<strong>0 B<\/strong>/)
+  assert.ok(!html.includes('aria-label="选择 dev-a"'))
+  assert.ok(!html.includes('aria-label="选择 dev-b"'))
+})
+
+test('overlapping browser/developer caches are counted once', () => {
+  const mutate = cases.find(([n]) => n === 'clean-junk')[1]
+  const overview = { ...mockOverview, report: { ...mockOverview.report, leftoverGroups: [], special: [],
+    devCaches: [{ path: '/demo/Caches/tool', kb: 1024, cleanable: true }],
+    browsers: [{ name: 'Browser', path: '/demo/Caches/browser', kb: 1024 }],
+    caches: [{ path: '/demo/Caches', kb: 2048 }, { path: '/demo/Caches/tool', kb: 1024 }] } }
+  const html = renderWithData(mutate, 'zh', overview)
+  assert.match(html, /建议处理<strong>2 MB<\/strong>/)
+})
+
+test('expired reports allow inspection but disable cleanup selection', () => {
+  const html = renderWithData(cases.find(([n]) => n === 'clean-junk')[1], 'zh', { ...mockOverview, at: Date.now() - 11 * 60000 })
+  assert.ok(html.includes('扫描结果已过期'))
+  assert.match(html, /aria-label="选择 dev-a"[^>]*disabled=""/)
+})
+
+test('space offers full scan for missing coverage and separates filtered empty results', () => {
+  const mutate = cases.find(([n]) => n === 'space-large')[1]
+  const empty = { ...mockOverview, report: { ...mockOverview.report, bigFiles: [] } }
+  assert.match(renderWithData(mutate, 'zh', noScanOverview), /先扫描，查找占用较大的文件/)
+  assert.match(renderWithData(mutate, 'zh', empty), /当前体检未覆盖大文件/)
+  const full = s => mutate(s).replaceAll('const [scan, setScan] = useState({ status: "idle" });', 'const [scan, setScan] = useState({ status: "done", full: true });')
+  assert.match(renderWithData(full, 'zh', empty), /没有发现大文件/)
+  assert.match(renderWithData(full, 'en', empty), /No large files found/)
+  const filtered = s => full(s).replace('useState("");\n            const [minSize', 'useState("unmatched");\n            const [minSize')
+  assert.match(renderWithData(filtered, 'zh'), /清除筛选/)
+})
+
+test('large files from expired reports and protected locations cannot be selected', () => {
+  const mutate = cases.find(([n]) => n === 'space-large')[1]
+  for (const overview of [{...mockOverview, at:Date.now()-11*60000}, {...mockOverview,whitelist:['/tmp']}]) {
+    const html = renderWithData(mutate,'zh',overview)
+    assert.match(html,/aria-label="选择 \/tmp\/big.bin"[^>]*disabled=""/)
+  }
+})
+
+test('space chart includes all items in total and aggregates the tail consistently', () => {
+  const children = Array.from({length:9},(_,i)=>({path:'/demo/'+i,name:'item'+i,kb:1024,isDir:true}))
+  const mutate=s=>cases.find(([n])=>n==='space-tree')[1](s).replace('const [data, setData] = useState(null);','const [data, setData] = useState('+JSON.stringify({path:'/demo',at:Date.now(),children,metric:'allocated'})+');')
+  const html=renderView(mutate)
+  assert.ok(html.includes('9 MB'))
+  assert.ok(html.includes('item8'))
+  assert.ok(html.includes('其他'))
+  assert.ok(html.includes('33%'))
+  assert.ok(!html.includes('NaN'))
+})
+
+test('moving all known large files does not mislabel the scan as missing coverage', () => {
+  const mutate=s=>cases.find(([n])=>n==='space-large')[1](s).replace('useState({status:"idle",done:0,total:0})','useState({status:"done",done:1,total:1,results:[{path:"/tmp/big.bin",ok:true}]})')
+  const html=renderWithData(mutate,'zh')
+  assert.ok(html.includes('没有发现大文件'))
+  assert.ok(!html.includes('当前体检未覆盖大文件，请进行完整扫描</p>'))
 })

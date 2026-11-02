@@ -11,3 +11,10 @@ test('scanner self-test exits 0', { timeout: 120000 }, () => {
   const r = spawnSync(cmd, [script, '--self-test'], { encoding: 'utf8', timeout: 90000 })
   assert.equal(r.status, 0, `stdout:\n${r.stdout}\nstderr:\n${r.stderr}`)
 })
+
+test('photo decoder regressions and native read-only image processing', { timeout: 120000 }, () => {
+  const tests = fileURLToPath(new URL('./photos-regressions.py', import.meta.url))
+  const cmd = process.env.PYTHON || (win ? 'python' : 'python3')
+  const r = spawnSync(cmd, [tests], { encoding: 'utf8', timeout: 110000 })
+  assert.equal(r.status, 0, `stdout:\n${r.stdout}\nstderr:\n${r.stderr}`)
+})

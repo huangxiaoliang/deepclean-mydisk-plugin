@@ -84,3 +84,12 @@ dsh plugin --profile desktop add file:C:\deepclean-mydisk-plugin
 - `py` 不存在：用 `python` 替换；或安装 Python 并勾选 py launcher；
 - 企业策略限制 PowerShell 脚本：`powershell -ExecutionPolicy Bypass -File ...`；
 - 无 Windows 机器：可先用 GitHub Actions（仓库已配 windows-latest），但那不是真实用户环境。
+
+
+## 照片与路径保护修复验收
+
+- `npm test` 在 Windows 会执行原生 .NET 指纹/缩略图测试，以及 HTTP 目录树、缩略图回归；macOS 本地会跳过两个 Windows 专用 HTTP 测试。
+- 保护 `C:\Users\用户名\Cache` 后，其子项、不同大小写或正斜杠写法都应被服务端拒绝；相邻的 `Cache-old` 不应被误保护。
+- 空间页中 1 MiB 文件应统计为 1024 KB，不能显示为 1 GiB；中文路径应保持可见。
+- 照片使用系统解码器，不需安装 Pillow。验证 JPEG/PNG/BMP 等受支持格式可分组和查看缩略图；HEIC/WebP 等格式以系统解码能力为限。部分文件失败会体现在“扫描/比较”张数差异与 JSON 的 skipped 字段；全部失败必须报错，不能显示为空结果成功。
+- 对照片执行扫描与缩略图查看后，对比原文件 SHA-256，内容应保持不变。

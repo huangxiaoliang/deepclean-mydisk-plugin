@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """相似照片扫描（dHash）——只读分析，供插件「相似照片」页面展示与清理。
 
-实现：sips 把图片缩成 9x8 BMP → 解析像素 → dHash64 → 汉明距离分组。
-不依赖第三方库；HEIC 等格式由 macOS sips 解码。
+实现：系统解码器将图片缩成 9x8 → 灰度像素 → dHash64 → 汉明距离分组。
+不依赖第三方库；macOS 用 sips，Windows 用 PowerShell/.NET 系统图片解码器。
 """
 import argparse
 import json
@@ -52,11 +52,33 @@ def bmp_gray(path):
     return gray
 
 
+def windows_command(mode):
+    if mode not in ("hash", "thumbnail"):
+        raise ValueError("Unknown image operation")
+    helper = Path(__file__).with_name("photos-windows.ps1")
+    command = "& {\n" + helper.read_text(encoding="utf-8") + "\n} -Mode " + mode
+    import base64
+    encoded = base64.b64encode(command.encode("utf-16-le")).decode("ascii")
+    return ["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded]
+
+
+def windows_hashes(files):
+    """Decode the batch in one PowerShell process; paths travel as UTF-8 JSON, not shell code."""
+    result = subprocess.run(
+        windows_command("hash"),
+        input=json.dumps([f["path"] for f in files], ensure_ascii=False),
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=540)
+    if result.returncode:
+        raise RuntimeError("Windows image decoder failed: " + result.stderr.strip()[:500])
+    rows = json.loads(result.stdout.lstrip("\ufeff"))
+    return {r["path"]: int(r["hash"], 16) for r in rows if r.get("hash")}
+
+
 def dhash(path):
     with tempfile.TemporaryDirectory(prefix="dc-photo-") as td:
         out = os.path.join(td, "x.bmp")
         subprocess.run(["sips", "-z", "8", "9", "-s", "format", "bmp", str(path), "--out", out],
-                       capture_output=True, timeout=30)
+                       capture_output=True, timeout=30, check=True)
         g = bmp_gray(out)
     bits = 0
     for y in range(8):
@@ -106,14 +128,23 @@ def main():
     files = collect(dirs, args.min_kb, args.limit)
     total = len(files)
     _progress(15, f"计算指纹（0/{total}）")
-    for i, f in enumerate(files):
-        try:
-            f["hash"] = dhash(f["path"])
-        except Exception:
-            f["hash"] = None
-        if i % 25 == 0:
-            _progress(15 + int(70 * i / max(1, total)), f"计算指纹（{i}/{total}）")
+    if sys.platform == "win32" and files:
+        hashes = windows_hashes(files)
+        for f in files:
+            f["hash"] = hashes.get(f["path"])
+    else:
+        for i, f in enumerate(files):
+            try:
+                f["hash"] = dhash(f["path"])
+            except (FileNotFoundError, PermissionError):
+                raise RuntimeError("Image decoder unavailable: sips")
+            except (OSError, ValueError, struct.error, subprocess.SubprocessError):
+                f["hash"] = None
+            if i % 25 == 0:
+                _progress(15 + int(70 * i / max(1, total)), f"计算指纹（{i}/{total}）")
     good = [f for f in files if f["hash"] is not None]
+    if files and not good:
+        raise RuntimeError("No images could be decoded; check image formats and the system decoder")
     _progress(88, "分组相似照片")
     parent = list(range(len(good)))
 
@@ -150,7 +181,7 @@ def main():
         })
     result.sort(key=lambda g: -g["wastedKb"])
     out = {"generatedAt": int(time.time() * 1000), "scanned": total,
-           "compared": len(good), "groups": result, "elapsed": round(time.time() - t0, 1)}
+           "compared": len(good), "skipped": total - len(good), "groups": result, "elapsed": round(time.time() - t0, 1)}
     Path(args.json).write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
     _progress(100, "完成")
 
