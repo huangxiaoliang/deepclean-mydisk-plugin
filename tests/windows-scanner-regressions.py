@@ -14,6 +14,14 @@ import tempfile
 import time
 from pathlib import Path
 
+# Windows 的管道/控制台默认 cp1252，直接 print 中文会抛 UnicodeEncodeError；
+# 与 resources/scripts/platforms/windows.py 的 _stdout_utf8 保持一致，强制 UTF-8。
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 SPEC = Path(__file__).resolve().parent.parent / "resources" / "scripts" / "platforms" / "windows.py"
 loader = importlib.util.spec_from_file_location("winscan", SPEC)
 win = importlib.util.module_from_spec(loader)
