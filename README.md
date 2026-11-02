@@ -4,11 +4,11 @@ DSH 插件：macOS / Windows 原生侧边栏磁盘空间工具。**只读体检�
 
 > 仓库：https://github.com/huangxiaoliang/deepclean-mydisk-plugin
 > 安装：`dsh plugin --profile desktop add github:huangxiaoliang/deepclean-mydisk-plugin`（或本地 `link:/绝对路径`）
-> 测试：`npm test`（71 个用例；GitHub Actions 矩阵 macOS + Windows）
+> 测试：`npm test`（97 个用例；GitHub Actions 矩阵 macOS + Windows）
 > Windows 真机验收：`docs/windows-acceptance.md` + `scripts/acceptance-windows.ps1`
 > 视觉验收：[design-qa.md](design-qa.md)
 
-> 本文档描述 v0.10.1；更早版本见文末「版本历史」。
+> 本文档描述 v0.11.0；更早版本见文末「版本历史」。
 
 ## 打开面板即显示
 
@@ -136,14 +136,14 @@ resources/scripts/   只读扫描器：deepclean.py 入口、scan.py、platforms
 resources/rules.json macOS 分类规则
 resources/images/    首页插画（只经宿主固定路由暴露）
 scripts/             隔离预览、扫描器同步、Windows 验收
-tests/               node:test 71 个用例 + 照片解码回归
+tests/               node:test 97 个用例 + 照片解码回归
 docs/                Windows 验收清单、设计稿与视觉验收
 ```
 
 ### 常用命令
 
 ```bash
-npm test                                                   # 71 个用例
+npm test                                                   # 97 个用例
 node --check lib/index.js lib/client.js lib/clean.js lib/platform.js scripts/preview.mjs
 python3 resources/scripts/deepclean.py --self-test         # 扫描器自检
 python3 resources/scripts/deepclean.py --check-permissions # 权限检查
@@ -153,8 +153,8 @@ node scripts/preview.mjs                                   # 隔离预览
 
 ### 测试与 CI
 
-- `npm test`（`node --test`）共 **71** 个用例：pages 42 / host 14 / clean 5 / client 3 / windows-regressions 3 / scanner 2 / cancel 2；
-- 平台专用用例会跳过：macOS 跳过 2 个 Windows 专用 HTTP 用例，Windows 预期跳过 3 个 macOS 用例；
+- `npm test`（`node --test`）共 **97** 个用例：pages 48 / host 20 / clean 7 / file-safety 11 / client 3 / windows-regressions 3 / scanner 3 / cancel 2；
+- 平台专用用例会跳过：macOS 跳过 2 个 Windows 专用 HTTP 用例，Windows 预期跳过 4 个 macOS 用例；
 - CI（`.github/workflows/tests.yml`）在 macOS + Windows 上跑 Node 24 + Python 3.12，只执行 `npm test`；
 - 页面测试是 SSR 渲染（`renderToString`），不是浏览器 E2E；真实交互请用隔离预览人工验收。
 

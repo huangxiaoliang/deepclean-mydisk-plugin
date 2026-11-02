@@ -33,21 +33,24 @@ DSH 插件：原生侧边栏磁盘空间工具（macOS / Windows），只读体�
 | `scripts/preview.mjs` | 隔离预览：`127.0.0.1:4173`，加载真实 `lib/client.js`，宿主 API 全内存 mock，路径虚构在 `/demo`，不碰用户文件 |
 | `scripts/sync-scanner.sh` | 从 skill 仓库同步 `scan.py` / `deepclean.py` / `platforms/` / `rules.json`（**不含** `photos.py` / `tree.py` / `photos-windows.ps1`） |
 | `scripts/acceptance-windows.ps1` | Windows 真机验收（输出 `acceptance-report/`） |
-| `tests/` | `node:test` **71** 个用例：pages 42 / host 14 / clean 5 / client 3 / windows-regressions 3 / scanner 2 / cancel 2 |
+| `tests/` | `node:test` **97** 个用例：pages 48 / host 20 / clean 7 / file-safety 11 / client 3 / windows-regressions 3 / scanner 3 / cancel 2 |
 | `tests/photos-regressions.py` | 照片解码与只读回归（由 `tests/scanner.test.mjs` 调用） |
+| `tests/windows-scanner-regressions.py` | Windows 扫描器纯函数回归：`big_files` 的 mtime/排序/预算截断、`cleanable`/`admin` 过滤（由 `tests/scanner.test.mjs` 调用，macOS 也能跑） |
 | `tests/fixtures/preview-report.mjs` | 预览与页面测试共用的合成报告 |
 | `docs/windows-acceptance.md` | Windows 真机验收清单 |
 | `docs/design/` + `design-qa.md` | 首页/清理页设计稿、截图、视觉验收结论 |
+| `docs/copy-terms.md` | 文案术语表（UI 与报告统一用词，改文案先查） |
 | `.github/workflows/tests.yml` | macOS + Windows CI（Node 24 + Python 3.12，只跑 `npm test`） |
 
 ## 常用命令
 ```bash
-npm test                                   # 71 个用例（macOS：69 pass + 2 个 Windows 专用 skip）
+npm test                                   # 97 个用例（macOS：95 pass + 2 个 Windows 专用 skip）
 node --check lib/index.js lib/client.js lib/clean.js lib/platform.js scripts/preview.mjs
 python3 resources/scripts/deepclean.py --self-test          # 扫描器自检
 python3 resources/scripts/deepclean.py --check-permissions  # 权限检查
 python3 resources/scripts/deepclean.py --version            # deepclean-mydisk 0.5.0
 python3 tests/photos-regressions.py                         # 照片解码回归
+python3 tests/windows-scanner-regressions.py                # Windows 扫描器回归（改了 platforms/windows.py 才需要）
 node scripts/preview.mjs                                    # http://127.0.0.1:4173
 ```
 
@@ -58,7 +61,7 @@ node scripts/preview.mjs                                    # http://127.0.0.1:4
   - Windows → `%LOCALAPPDATA%\deepclean-mydisk\trash\<时间戳>`
   - 其他 → `~/.local/share/deepclean-mydisk/trash/<时间戳>`
   - 可用 `DEEPCLEAN_TRASH_DIR` 覆盖；
-- 只接受最近 **10 分钟**的扫描结果：体检报告或相似照片结果任一新鲜即可，且只取允许集合（safe 档 + 非 system 缓存 / 开发缓存 / 浏览器 / 专项可清理项；「需确认」档永不进入）；
+- 只接受最近 **10 分钟**的扫描结果：体检报告或相似照片结果任一新鲜即可，且只取允许集合（safe 档 + 非 system、非 admin、`cleanable≠false` 的缓存 / 开发缓存 / 浏览器 / 专项可清理项；「需确认」档与 Temp 类被占用目录永不进入）；
 - 白名单路径在宿主用 `isProtected` **二次校验**（不依赖 UI 勾选）；win32 匹配大小写不敏感并解析 `.` / `..`；
 - 符号链接拒绝：清理逐条 `lstat`、搬家源逐级祖先、搬家目标、tree 浏览均校验；
 - 跨盘搬家必须复制后 **SHA-256 + 大小**双向校验，失败删除临时文件并保留原文件；
@@ -73,19 +76,18 @@ node scripts/preview.mjs                                    # http://127.0.0.1:4
 - 扫描是**后台子进程**：`POST /scan` 立即 202，客户端 900ms 轮询 `GET /scan`；进度条按经验时长插值（28s / 45s），不是实测耗时，UI 进度与实际进度可能不同步。
 - `/api/report` 的 GET 有副作用：除 `cached=1` 外都会**启动扫描**并返回 202；客户端已不再调用它，改由 `/api/scan`。
 - `/api/tree` 走 `tree.py` + 60s 缓存（100 条 LRU），使用独立子进程句柄，浏览目录**不会**取消正在进行的扫描。
-- 测试按平台跳过：macOS 跳 2 个 Windows 专用 HTTP 用例（`tests/host.test.mjs:130`、`:150`）；Windows 预期跳 3 个（tree 拒家目录外、permissions、符号链接）。CI 两端都会跑全量。
+- 测试按平台跳过：macOS 跳 2 个 Windows 专用 HTTP 用例（`tests/host.test.mjs:130`、`:150`）；Windows 预期跳 4 个（tree 拒家目录外、permissions，以及清理/搬家各 1 个符号链接用例）。CI 两端都会跑全量。
 - 换行统一 **LF**（`.gitattributes` 的 `* text=auto eol=lf`）：页面测试用源码字符串替换注入视图，CRLF checkout 会让断言失配；不要改该文件或改用会转 CRLF 的克隆配置。
 
 ## 已知缺口（改代码前先看，均为代码事实）
 1. **Windows 报告字段与消费方不一致**：`platforms/windows.py` 产出 `leftovers` / `cloud`，而宿主 `allowedPaths` 与客户端只读 `leftoverGroups` / `caches` / `devCaches` / `browsers` / `special`。结果：Windows 的「已卸载残留 / UWP / OneDrive」只出现在 Markdown 报告，**不进面板清单、也不进清理允许集合**。
 2. `scripts/acceptance-windows.ps1` 检查 `browsers` / `special` 字段存在，但 Windows 报告本就没有 → 真机上必然 2 项假失败（待改脚本或补字段）。
-3. Windows 的 `admin: true` 缓存（如 `C:\Windows\Temp`）未被排除，会进入清理允许集合（非管理员执行会失败）。
-4. `/api/reveal` 的条件是「家目录外**且**非目录」才拒绝，即家目录外的已存在目录也会被打开，且不检查符号链接（只读操作）。
-5. `lib/platform.js:parseTreeOutput` 未被生产代码调用（tree 已改用 `tree.py` 的 JSON），仅 `tests/windows-regressions.test.mjs` 引用。
-6. Linux：宿主有 `bootMount` / `listVolumes` / `xdg-open` 分支，但 `deepclean.py` 对非 win/darwin 回退 macOS 扫描器，**未验收**；对外口径为「支持 macOS / Windows」。
-7. 验收范围：`design-qa.md` 只覆盖浅色首页 + 清理页 + 英文窄窗口（隔离预览），Windows 真机 / 暗色主题 / 无障碍**未验收**；英文模式下少量动态提示仍有中文残留。
-8. **Windows 的 `appCaches` 尚未实现**：`platforms/windows.py` 已预留空数组，宿主/客户端已消费；Windows 端扫描逻辑待补。
-9. **永久删除边界**：`purgeMoved` 仅允许删除「本插件移入废纸篓/隔离区」的批次条目，拒绝隔离区外路径与符号链接；不要放宽为任意路径删除。
+3. `/api/reveal` 的条件是「家目录外**且**非目录」才拒绝，即家目录外的已存在目录也会被打开，且不检查符号链接（只读操作）。
+4. `lib/platform.js:parseTreeOutput` 未被生产代码调用（tree 已改用 `tree.py` 的 JSON），仅 `tests/windows-regressions.test.mjs` 引用。
+5. Linux：宿主有 `bootMount` / `listVolumes` / `xdg-open` 分支，但 `deepclean.py` 对非 win/darwin 回退 macOS 扫描器，**未验收**；对外口径为「支持 macOS / Windows」。
+6. 验收范围：`design-qa.md` 只覆盖浅色首页 + 清理页 + 英文窄窗口（隔离预览），Windows 真机 / 暗色主题 / 无障碍**未验收**；英文模式下权限检查输出等扫描器原文仍为中文（其余动态提示已补齐翻译，术语见 `docs/copy-terms.md`）。
+7. **Windows 的 `appCaches` 尚未实现**：`platforms/windows.py` 已预留空数组，宿主/客户端已消费；Windows 端扫描逻辑待补。
+8. **永久删除边界**：`purgeMoved` 仅允许删除「本插件移入废纸篓/隔离区」的批次条目，拒绝隔离区外路径与符号链接；不要放宽为任意路径删除。
 
 ## 独立性与同步
 - 本仓库是独立项目，**不依赖** deepclean-mydisk skill 仓库；

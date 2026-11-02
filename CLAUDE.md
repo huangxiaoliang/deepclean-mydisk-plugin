@@ -19,10 +19,11 @@ node --check lib/index.js lib/client.js lib/clean.js lib/platform.js scripts/pre
 npm test
 python3 resources/scripts/deepclean.py --self-test    # 动了 resources/scripts/** 才需要
 python3 tests/photos-regressions.py                   # 动了 photos.py / photos-windows.ps1 才需要
+python3 tests/windows-scanner-regressions.py          # 动了 platforms/windows.py 才需要
 ```
 
 - 只改 `.md` 不用跑测试。
-- macOS 上 `npm test` 是 **71 用例 / 69 pass / 2 skip**；2 个 skip 是 Windows 专用 HTTP 用例（`tests/host.test.mjs` 里 `skip: process.platform !== 'win32'`），属于预期，不要删改断言来「修绿」。
+- macOS 上 `npm test` 是 **97 用例 / 95 pass / 2 skip**；2 个 skip 是 Windows 专用 HTTP 用例（`tests/host.test.mjs` 里 `skip: process.platform !== 'win32'`），属于预期，不要删改断言来「修绿」。
 - 改 `lib/client.js` 的界面后，用 `node scripts/preview.mjs`（127.0.0.1:4173，宿主 API 全 mock、路径虚构在 `/demo`）人工确认；预览不碰真实磁盘。
 - 提交前 `git diff` 自查：不能包含 `report.md` / `report.json` / `acceptance-report/` / `__pycache__` 等产物。
 
