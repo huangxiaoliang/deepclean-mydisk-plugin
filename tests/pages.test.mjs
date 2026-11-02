@@ -83,14 +83,14 @@ const mockPhotos = { scanned: 100, compared: 100, elapsed: 5, groups: [
   { id: 'g1', items: [{ path: '/tmp/p1/a.jpg', kb: 2000, mtime: 1 }, { path: '/tmp/p2/b.jpg', kb: 1500, mtime: 2 }], totalKb: 3500, wastedKb: 1500 },
 ] }
 
-function renderWithData(mutate, lang, overview = mockOverview) {
+function renderWithData(mutate, lang, overview = mockOverview, photos = mockPhotos) {
   const source = mutate(base)
     .replace('const [overview, setOverview] = useState(null);', 'const [overview, setOverview] = useState(globalThis.__TEST_OVERVIEW__ || null);')
     .replace('const [liveDisk, setLiveDisk] = useState(null);', 'const [liveDisk, setLiveDisk] = useState(globalThis.__TEST_DISK__ || null);')
     .replace('const [result, setResult] = useState(null);', 'const [result, setResult] = useState(globalThis.__TEST_PHOTOS__ || null);')
   globalThis.__TEST_OVERVIEW__ = overview
   globalThis.__TEST_DISK__ = overview.disk || null
-  globalThis.__TEST_PHOTOS__ = mockPhotos
+  globalThis.__TEST_PHOTOS__ = photos
   globalThis.localStorage = {
     getItem: (k) => (k === 'deepclean-lang' ? lang : k === 'deepclean-safety-ok' ? '1' : null),
     setItem: () => {},
@@ -119,7 +119,7 @@ for (const [name, mutate] of cases) {
 test('wizard shows recommended items with data', () => {
   const mutate = cases.find(([n]) => n === 'home-wizard')[1]
   const html = renderWithData(mutate, 'zh')
-  assert.match(html, /体检结果/)
+  assert.match(html, /扫描结果/)
   assert.match(html, /清理推荐项/)
   assert.match(html, /Test Media/)
 })
@@ -127,10 +127,10 @@ test('wizard shows recommended items with data', () => {
 test('clean page separates content categories, risks and actions', () => {
   const mutate = cases.find(([n]) => n === 'clean-junk')[1]
   const zh = renderWithData(mutate, 'zh')
-  for (const t of ['内容分类', '开发缓存', '浏览器缓存', '处理影响', '风险筛选', '移到废纸篓', '更多操作']) assert.ok(zh.includes(t), t)
+  for (const t of ['内容分类', '开发缓存', '浏览器缓存', '清理影响', '风险筛选', '移到废纸篓', '更多操作']) assert.ok(zh.includes(t), t)
   assert.ok(!zh.includes('选择 ≥'), 'advanced batch operations should not crowd the toolbar')
   const en = renderWithData(mutate, 'en')
-  for (const t of ['Categories', 'Developer caches', 'Impact', 'Move to Trash', 'More actions']) assert.ok(en.includes(t), t)
+  for (const t of ['Categories', 'Developer caches', 'Cleanup impact', 'Move to Trash', 'More actions']) assert.ok(en.includes(t), t)
 })
 
 test('photos page shows keep rules, folder filter and compare', () => {
@@ -195,7 +195,7 @@ test('protected paths and read-only developer data never enter movable totals', 
   const html = renderWithData(mutate, 'zh', overview)
   assert.ok(html.includes('受保护'))
   assert.ok(html.includes('需确认'))
-  assert.match(html, /建议处理<strong>0 B<\/strong>/)
+  assert.match(html, /预计可释放<strong>0 B<\/strong>/)
   assert.ok(!html.includes('aria-label="选择 dev-a"'))
   assert.ok(!html.includes('aria-label="选择 dev-b"'))
 })
@@ -207,7 +207,7 @@ test('overlapping browser/developer caches are counted once', () => {
     browsers: [{ name: 'Browser', path: '/demo/Caches/browser', kb: 1024 }],
     caches: [{ path: '/demo/Caches', kb: 2048 }, { path: '/demo/Caches/tool', kb: 1024 }] } }
   const html = renderWithData(mutate, 'zh', overview)
-  assert.match(html, /建议处理<strong>2 MB<\/strong>/)
+  assert.match(html, /预计可释放<strong>2 MB<\/strong>/)
 })
 
 test('expired reports allow inspection but disable cleanup selection', () => {
@@ -220,7 +220,7 @@ test('space offers full scan for missing coverage and separates filtered empty r
   const mutate = cases.find(([n]) => n === 'space-large')[1]
   const empty = { ...mockOverview, report: { ...mockOverview.report, bigFiles: [] } }
   assert.match(renderWithData(mutate, 'zh', noScanOverview), /先扫描，查找占用较大的文件/)
-  assert.match(renderWithData(mutate, 'zh', empty), /当前体检未覆盖大文件/)
+  assert.match(renderWithData(mutate, 'zh', empty), /当前扫描未覆盖大文件/)
   const full = s => mutate(s).replaceAll('const [scan, setScan] = useState({ status: "idle" });', 'const [scan, setScan] = useState({ status: "done", full: true });')
   assert.match(renderWithData(full, 'zh', empty), /没有发现大文件/)
   assert.match(renderWithData(full, 'en', empty), /No large files found/)
@@ -251,7 +251,7 @@ test('moving all known large files does not mislabel the scan as missing coverag
   const mutate=s=>cases.find(([n])=>n==='space-large')[1](s).replace('useState({status:"idle",done:0,total:0})','useState({status:"done",done:1,total:1,results:[{path:"/tmp/big.bin",ok:true}]})')
   const html=renderWithData(mutate,'zh')
   assert.ok(html.includes('没有发现大文件'))
-  assert.ok(!html.includes('当前体检未覆盖大文件，请进行完整扫描</p>'))
+  assert.ok(!html.includes('当前扫描未覆盖大文件，请进行完整扫描</p>'))
 })
 
 test('clean page shows installed app cache category', () => {
@@ -263,6 +263,55 @@ test('clean page shows installed app cache category', () => {
   assert.match(zh, /Test App/)
   const en = renderWithData(mutate, 'en', overview)
   assert.match(en, /App cache/)
+})
+
+test('windows admin and in-use temp caches are view-only', () => {
+  const mutate = cases.find(([n]) => n === 'clean-junk')[1]
+  const overview = { ...mockOverview, platform: 'win32', report: { ...mockOverview.report,
+    leftoverGroups: [], devCaches: [], browsers: [], special: [], appCaches: [],
+    caches: [
+      { path: 'C:/Windows/Temp', kb: 100000, admin: true, advice: '需要管理员权限；建议用「磁盘清理」处理' },
+      { path: 'C:/Users/demo/AppData/Local/Temp', kb: 200000, cleanable: false, advice: '程序运行中持续使用；建议用「磁盘清理」处理' },
+      { path: 'C:/Users/demo/AppData/Local/CrashDumps', kb: 50000, advice: '缓存，可重建' },
+    ] } }
+  const zh = renderWithData(mutate, 'zh', overview)
+  assert.ok(zh.includes('需要管理员权限；建议用「磁盘清理」处理'))
+  assert.ok(zh.includes('程序运行中持续使用；建议用「磁盘清理」处理'))
+  assert.ok(zh.includes('aria-label="选择 CrashDumps"'), 'cleanable cache stays selectable')
+  assert.ok(!zh.includes('aria-label="选择 Temp"'), 'locked temp rows must not be selectable')
+  assert.match(zh, /预计可释放<strong>49 MB<\/strong>/, 'only the cleanable cache counts toward the estimate')
+  const en = renderWithData(mutate, 'en', overview)
+  assert.ok(en.includes('Requires administrator rights; use Windows Disk Cleanup instead'))
+  assert.ok(en.includes('In use by running programs; use Windows Disk Cleanup instead'))
+})
+
+test('windows large files show modification age instead of unknown', () => {
+  const mutate = cases.find(([n]) => n === 'space-large')[1]
+  const overview = { ...mockOverview, platform: 'win32', report: { ...mockOverview.report,
+    bigFiles: [{ path: 'C:\\Users\\demo\\Downloads\\big.iso', kb: 400000, mtime: Math.floor(Date.now() / 1000 - 200.5 * 86400) }] } }
+  const zh = renderWithData(mutate, 'zh', overview)
+  assert.match(zh, /超过 200 天未修改/)
+  assert.ok(!zh.includes('修改时间未知'))
+})
+
+test('photos page handles Windows path separators', () => {
+  const mutate = cases.find(([n]) => n === 'clean-photos')[1]
+  const winPhotos = { scanned: 4, compared: 4, elapsed: 1, groups: [
+    { id: 'g1', items: [
+      { path: 'C:\\Users\\demo\\Pictures\\a.jpg', kb: 2000, mtime: 1, size: 2000000 },
+      { path: 'C:\\Users\\demo\\Downloads\\a copy.jpg', kb: 1500, mtime: 2, size: 1500000 }], totalKb: 3500, wastedKb: 1500 },
+    { id: 'g2', items: [
+      { path: 'C:\\Users\\demo\\Desktop\\b.jpg', kb: 900, mtime: 3, size: 900000 },
+      { path: 'C:\\Users\\demo\\Pictures\\b copy.jpg', kb: 800, mtime: 4, size: 800000 }], totalKb: 1700, wastedKb: 800 },
+  ] }
+  const zh = renderWithData(mutate, 'zh', mockOverview, winPhotos)
+  assert.ok(zh.includes('>a.jpg<'), 'filename must be the base name, not the full backslash path')
+  assert.ok(!zh.includes('C:\\Users\\demo\\Pictures\\a.jpg</div>'))
+  for (const dir of ['C:/Users/demo/Pictures', 'C:/Users/demo/Downloads', 'C:/Users/demo/Desktop']) {
+    assert.ok(zh.includes(`<option value="${dir}">`), `folder filter option ${dir}`)
+  }
+  const en = renderWithData(mutate, 'en', mockOverview, winPhotos)
+  assert.ok(en.includes('>a.jpg<'))
 })
 
 test('history offers permanent deletion of a batch', () => {

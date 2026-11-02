@@ -210,12 +210,15 @@ def cache_specs():
     temp = env_path("TEMP") or env_path("TMP")
     roaming = env_path("APPDATA")
     specs = []
-    def add(p, label, safe=True, system=False, admin=False, advice="缓存，可重建"):
+    def add(p, label, safe=True, system=False, admin=False, cleanable=True, advice="缓存，可重建"):
         if p and Path(p).exists():
             specs.append({"path": str(Path(p)), "label": label, "safe": safe,
-                          "system": system, "admin": admin, "advice": advice})
+                          "system": system, "admin": admin, "cleanable": cleanable,
+                          "advice": advice})
     if local:
-        add(local / "Temp", "用户临时文件")
+        # Temp 被运行中的程序持续占用，整体移动要么失败、要么破坏程序 → 仅供查看。
+        add(local / "Temp", "用户临时文件", cleanable=False,
+            advice="程序运行中持续使用；建议用「磁盘清理」处理")
         add(local / "CrashDumps", "崩溃转储")
         add(local / "Microsoft" / "Windows" / "WER", "Windows 错误报告")
         add(local / "npm-cache", "npm 缓存")
@@ -225,8 +228,11 @@ def cache_specs():
         add(local / "Google" / "Chrome" / "User Data" / "Default" / "Cache", "Chrome 缓存")
         add(local / "Microsoft" / "Edge" / "User Data" / "Default" / "Cache", "Edge 缓存")
     if temp:
-        add(temp, "临时文件")
-    add(Path("C:/Windows/Temp"), "系统临时文件", admin=True)
+        add(temp, "临时文件", cleanable=False,
+            advice="程序运行中持续使用；建议用「磁盘清理」处理")
+    # 需要管理员权限，且整体移动系统 Temp 目录本身就有风险 → 不进入清理允许集合。
+    add(Path("C:/Windows/Temp"), "系统临时文件", admin=True, cleanable=False,
+        advice="需要管理员权限；建议用「磁盘清理」处理")
     add(Path("C:/Windows/SoftwareDistribution/Download"), "Windows 更新缓存",
         safe=False, system=True, admin=True)
     # Firefox 多 profile
@@ -243,9 +249,9 @@ def dev_specs():
     def add(p, advice):
         if p and Path(p).exists():
             out.append({"path": str(Path(p)), "advice": advice})
-    add(home / ".gradle" / "caches", "Gradle 缓存，构建时重下")
-    add(home / ".m2" / "repository", "Maven 仓库，构建时重下")
-    add(home / ".nuget" / "packages", "NuGet 包，还原时重下")
+    add(home / ".gradle" / "caches", "Gradle 缓存，构建时会重新下载")
+    add(home / ".m2" / "repository", "Maven 仓库，构建时会重新下载")
+    add(home / ".nuget" / "packages", "NuGet 包，还原时会重新下载")
     add(home / ".cargo" / "registry", "Cargo 缓存")
     add(home / ".conda" / "pkgs", "Conda 包缓存")
     add(local / "npm-cache" if local else None, "npm cache clean --force")
@@ -268,11 +274,16 @@ def cloud_roots():
     return sorted(roots)
 
 
-def big_files(home, min_mb, cloud, top=15):
+def big_files(home, min_mb, cloud, top=15, deadline=None):
+    """全盘大文件：先排序后取 top-N；超过时间预算即截断（与 size_of 同一约定）。"""
     skip_dirs = {"appdata", "node_modules", ".git", "$recycle.bin", "system volume information"}
     cloud_resolved = [str(Path(c)) for c in cloud]
     rows = []
+    truncated = False
     for root, dirs, files in os.walk(home):
+        if deadline and time.time() > deadline:
+            truncated = True
+            break
         dirs[:] = [d for d in dirs if d.lower() not in skip_dirs
                    and not is_reparse(os.path.join(root, d))
                    and not any(os.path.join(root, d).startswith(c) for c in cloud_resolved)]
@@ -281,13 +292,13 @@ def big_files(home, min_mb, cloud, top=15):
                 p = os.path.join(root, f)
                 if is_reparse(p):
                     continue
-                sz = os.path.getsize(p)
-                if sz >= min_mb * 1024 * 1024:
-                    rows.append({"path": p, "bytes": sz})
+                st = os.stat(p)
+                if st.st_size >= min_mb * 1024 * 1024:
+                    rows.append({"path": p, "bytes": st.st_size, "mtime": int(st.st_mtime)})
             except OSError:
                 continue
     rows.sort(key=lambda x: -x["bytes"])
-    return rows[:top]
+    return rows[:top], truncated
 
 
 def scan(args):
@@ -385,15 +396,17 @@ def scan(args):
             r["truncated"] |= trunc
             if kb >= args.min_leftover_mb * 1024 * 1024 and fresh(d):
                 r["leftovers"].append({"name": f"UWP: {d.name}", "path": str(d), "kb": kb // 1024,
-                                       "why": "商店应用数据；删除会导致该应用重置/丢数据"})
+                                       "why": "商店应用数据；删除后应用将被重置且数据丢失"})
 
     r["leftovers"].sort(key=lambda x: -x["kb"])
     if not args.quick:
-        r["bigFiles"] = [{"path": b["path"], "kb": b["bytes"] // 1024}
-                         for b in big_files(home, args.min_mb, cloud)]
+        big, big_trunc = big_files(home, args.min_mb, cloud, deadline=deadline)
+        r["truncated"] |= big_trunc
+        r["bigFiles"] = [{"path": b["path"], "kb": b["bytes"] // 1024, "mtime": b["mtime"]}
+                         for b in big]
     r["devPaths"] = sorted(dev_paths)
     r["elapsed"] = round(time.time() - t0, 1)
-    safe_kb = sum(c["kb"] for c in r["caches"] if c["safe"] and not c["system"])
+    safe_kb = sum(c["kb"] for c in r["caches"] if c["safe"] and not c["system"] and c.get("cleanable", True))
     dev_kb = sum(d["kb"] for d in r["devCaches"])
     r["estimate"] = {"safeKb": safe_kb, "devKb": dev_kb, "totalKb": safe_kb + dev_kb}
     return r
@@ -409,9 +422,9 @@ def render(r, args):
     a(f"- 机器：{r['host'] if not args.redact else '***'}")
     a(f"- 权限：{r['access']['detail']}（清理 ProgramData / Windows 目录需要管理员）")
     a(f"- 已安装程序（注册表）：{r['installedCount']} 个")
-    a(f"- 系统盘 C: 共 {r['disk']['total']/1e9:.0f}G，已用 {r['disk']['used']/1e9:.0f}G，"
-      f"可用 **{r['disk']['free']/1e9:.0f}G**")
-    a(f"- 扫描耗时：{r['elapsed']}s" + ("（quick：未扫大文件）" if args.quick else ""))
+    a(f"- 系统盘 C: 共 {r['disk']['total']/1e9:.0f} GB，已用 {r['disk']['used']/1e9:.0f} GB，"
+      f"可用 **{r['disk']['free']/1e9:.0f} GB**")
+    a(f"- 扫描耗时：{r['elapsed']}s" + ("（快速模式：未扫描大文件）" if args.quick else ""))
     a(f"- 扫描范围：{r['scope']}")
     if r["truncated"]:
         a("- ⚠️ 部分目录超过时间预算，大小可能偏小（仍可安全使用）")
@@ -430,23 +443,23 @@ def render(r, args):
             a(f"| {human(it['kb'])} | `{it['path']}` | {it.get('note', '')} |")
         a("")
 
-    table("一、可安全清理（临时文件/缓存）",
+    table("一、推荐清理（临时文件/缓存）",
           [{"path": c["path"], "kb": c["kb"], "note": f"{c['label']}；{c['advice']}"}
-           for c in r["caches"] if c["safe"] and not c["system"]])
-    table("二、需你确认（App 数据 / 可能的卸载残留 / UWP）",
+           for c in r["caches"] if c["safe"] and not c["system"] and c.get("cleanable", True)])
+    table("二、需确认（应用数据 / 可能的卸载残留 / UWP）",
           [{"path": l["path"], "kb": l["kb"], "note": l["why"]} for l in r["leftovers"]])
     table("三、开发缓存（可再生）",
           [{"path": d["path"], "kb": d["kb"], "note": d["advice"]} for d in r["devCaches"]])
-    table("四、云盘目录（不要动）",
+    table("四、云盘目录（不建议清理）",
           [{"path": c["path"], "kb": c["kb"], "note": "云盘同步目录；删除占位文件会删除云端文件"}
            for c in r["cloud"]])
-    table(f"五、大文件（> {args.min_mb}M，个人数据自行判断）",
-          [{"path": b["path"], "kb": b["kb"], "note": "个人文件，自行判断"} for b in r["bigFiles"]])
-    table("六、系统缓存（不建议动，需管理员）",
+    table(f"五、大文件（> {args.min_mb} MB，个人文件请自行判断）",
+          [{"path": b["path"], "kb": b["kb"], "note": "个人文件，请自行判断"} for b in r["bigFiles"]])
+    table("六、系统缓存与暂不可清理项（不建议清理）",
           [{"path": c["path"], "kb": c["kb"], "note": f"{c['label']}；{c['advice']}"}
-           for c in r["caches"] if c["system"]])
+           for c in r["caches"] if c["system"] or not c.get("cleanable", True)])
 
-    a("## 七、不要动")
+    a("## 七、不建议清理")
     a("")
     a("- `C:\\Windows\\WinSxS`、`C:\\Windows\\System32`、驱动仓库")
     a("- `pagefile.sys` / `hiberfil.sys` / `System Volume Information`")
@@ -458,11 +471,11 @@ def render(r, args):
     a("- 浏览器配置目录（书签/密码/登录态）")
     a("")
 
-    safe_kb = sum(c["kb"] for c in r["caches"] if c["safe"] and not c["system"])
+    safe_kb = sum(c["kb"] for c in r["caches"] if c["safe"] and not c["system"] and c.get("cleanable", True))
     dev_kb = sum(d["kb"] for d in r["devCaches"])
-    a("## 八、可回收估算")
+    a("## 八、预计可释放")
     a("")
-    a(f"- 可安全清理（缓存/临时）：**{human(safe_kb)}**")
+    a(f"- 推荐清理（缓存/临时文件）：**{human(safe_kb)}**")
     a(f"- 开发缓存：**{human(dev_kb)}**")
     a(f"- 合计约：**{human(safe_kb + dev_kb)}**（不含需确认项）")
     a("")
@@ -475,12 +488,12 @@ def render(r, args):
     a('New-Item -ItemType Directory -Force $q | Out-Null')
     emitted = 0
     for c in r["caches"]:
-        if not c["safe"] or c["system"] or c["kb"] < 100 * 1024:
+        if not c["safe"] or c["system"] or not c.get("cleanable", True) or c["kb"] < 100 * 1024:
             continue
         a(f"Move-Item -LiteralPath '{c['path']}' -Destination $q")
         emitted += 1
     if emitted == 0:
-        a("# 本次没有 ≥100M 的可安全清理缓存，无需移动")
+        a("# 本次没有 ≥100 MB 的推荐清理缓存，无需移动")
     a("```")
     a("")
     a("> 需确认项（App 数据/UWP）不生成命令；删除前请先退出对应程序。")
@@ -539,7 +552,7 @@ def self_test():
              "bigFiles": [], "truncated": False, "elapsed": 0.1, "scope": "x"}
         ns = argparse.Namespace(redact=False, quick=True, min_mb=300, min_leftover_mb=10)
         md = render(r, ns)
-        check("报告含关键小节", "可回收估算" in md and "不要动" in md)
+        check("报告含关键小节", "预计可释放" in md and "不建议清理" in md)
         md.encode("utf-8")
 
         # 隔离区往返

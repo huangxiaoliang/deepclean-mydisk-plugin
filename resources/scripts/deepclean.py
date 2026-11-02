@@ -72,8 +72,8 @@ def macos_self_test():
         text = report.read_text(encoding="utf-8")
         checks = [
             ("报告标题", "磁盘体检报告" in text),
-            ("可回收估算", "可回收估算" in text),
-            ("不要动", "不要动" in text),
+            ("预计可释放", "预计可释放" in text),
+            ("不建议清理", "不建议清理" in text),
             ("扫描范围", "扫描范围" in text),
         ]
         ok = True

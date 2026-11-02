@@ -18,3 +18,10 @@ test('photo decoder regressions and native read-only image processing', { timeou
   const r = spawnSync(cmd, [tests], { encoding: 'utf8', timeout: 110000 })
   assert.equal(r.status, 0, `stdout:\n${r.stdout}\nstderr:\n${r.stderr}`)
 })
+
+test('windows scanner pure-function regressions (big files mtime/budget, cleanable filter)', () => {
+  const tests = fileURLToPath(new URL('./windows-scanner-regressions.py', import.meta.url))
+  const cmd = process.env.PYTHON || (win ? 'python' : 'python3')
+  const r = spawnSync(cmd, [tests], { encoding: 'utf8', timeout: 60000 })
+  assert.equal(r.status, 0, `stdout:\n${r.stdout}\nstderr:\n${r.stderr}`)
+})
