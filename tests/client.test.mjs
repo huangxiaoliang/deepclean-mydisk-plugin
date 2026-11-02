@@ -34,19 +34,19 @@ test('client bundle registers sidebar panel and main view', () => {
 test('client bundle renders Chinese and English', () => {
   const zh = loadPanel('zh')
   const zhHtml = renderToString(require('react').createElement(zh.regs.find((r) => r.spec.name === 'main').comp))
-  assert.match(zhHtml, /开始体检/)
+  assert.match(zhHtml, /开始扫描/)
   for (const label of ['体检', '空间', '清理', '历史', '设置']) assert.match(zhHtml, new RegExp(label))
   const en = loadPanel('en')
   const enHtml = renderToString(require('react').createElement(en.regs.find((r) => r.spec.name === 'main').comp))
-  assert.match(enHtml, /Start checkup/)
-  assert.doesNotMatch(enHtml, /开始体检/)
+  assert.match(enHtml, /Start scan/)
+  assert.doesNotMatch(enHtml, /开始扫描/)
   for (const label of ['Checkup', 'Space', 'Clean', 'History', 'Settings']) assert.match(enHtml, new RegExp(label))
   assert.doesNotMatch(enHtml, /Similar photos/)
 })
 
 test('client bundle contains safety copy and platform-aware commands', () => {
   assert.match(source, /Moves by default|Moves only/)
-  assert.match(source, /Why here/)
+  assert.match(source, /never automatically purged/)
   assert.match(source, /Move-Item -LiteralPath/)
   assert.doesNotMatch(source, /rm -rf/)
 })

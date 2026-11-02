@@ -178,7 +178,7 @@ def classify(base, kb, rules):
     if any(h in low for h in rules["userDataHints"]):
         return "confirm", "可能含聊天记录/文档/笔记"
     if any(h in low for h in rules["devHints"]):
-        return "confirm", "开发工具数据，确认项目还在用再清"
+        return "confirm", "开发工具数据，请确认项目仍在使用后再清理"
     return "confirm", "未知来源，需人工确认"
 
 
@@ -213,7 +213,7 @@ PERMISSION_HELP = """\
 ❌ 缺少「完全磁盘访问权限」（Full Disk Access），已停止扫描。
 
    没有该权限时，macOS 会把其他 App 的容器显示成几十 KB 的空壳，
-   报告会严重漏报——这正是市面清理软件"扫不到"的原因。
+   报告会严重漏报——这正是市面清理软件「扫不到」的原因。
 
 请这样开启：
   1. 打开「系统设置」→「隐私与安全性」→「完全磁盘访问权限」
@@ -240,18 +240,18 @@ def dev_sizes(home, rules):
     items = [
         (home / ".npm" / "_cacache", "npm cache clean --force", True),
         (home / "Library" / "pnpm" / "store", "pnpm store prune", True),
-        (home / ".cache" / "codex-runtimes", "可删，Codex 用到会重下", True),
-        (home / ".m2" / "repository", "可删，Maven 会重下", True),
-        (home / "Library" / "Caches" / "electron-builder", "打包时重下", True),
-        (home / "Library" / "Caches" / "node-gyp", "重下", True),
-        (home / "Library" / "Caches" / "next-swc", "重下", True),
-        (home / "Library" / "Caches" / "CocoaPods", "pod 缓存，用时重下", True),
+        (home / ".cache" / "codex-runtimes", "Codex 缓存，需要时会重新下载", True),
+        (home / ".m2" / "repository", "Maven 仓库，构建时会重新下载", True),
+        (home / "Library" / "Caches" / "electron-builder", "打包时会重新下载", True),
+        (home / "Library" / "Caches" / "node-gyp", "需要时会重新下载", True),
+        (home / "Library" / "Caches" / "next-swc", "需要时会重新下载", True),
+        (home / "Library" / "Caches" / "CocoaPods", "CocoaPods 缓存，需要时会重新下载", True),
         (home / "Library" / "Caches" / "org.swift.swiftpm", "SwiftPM 缓存", True),
         (home / "Library" / "Developer" / "Xcode" / "DerivedData", "Xcode 构建缓存，安全可再生", True),
-        (home / "Library" / "Developer" / "Xcode" / "DeviceSupport", "iOS 设备支持文件，可重下", True),
-        (home / "Library" / "Developer" / "CoreSimulator", "模拟器数据；确认不再用再删", False),
-        (home / "Library" / "Developer" / "Xcode" / "Archives", "App 归档；提交/回滚可能需要，需确认", False),
-        (home / "Library" / "Containers" / "com.docker.docker" / "Data" / "vms", "Docker 镜像/卷；删了会丢容器数据，需确认", False),
+        (home / "Library" / "Developer" / "Xcode" / "DeviceSupport", "iOS 设备支持文件，需要时会重新下载", True),
+        (home / "Library" / "Developer" / "CoreSimulator", "模拟器数据，确认不再使用后再清理", False),
+        (home / "Library" / "Developer" / "Xcode" / "Archives", "应用归档，提交或回滚时可能需要，需确认", False),
+        (home / "Library" / "Containers" / "com.docker.docker" / "Data" / "vms", "Docker 镜像和数据卷，删除会丢失容器数据，需确认", False),
     ]
 
     def one(pair):
@@ -432,7 +432,7 @@ def scan(args):
         if f_home:
             r["disk"]["homeKb"] = f_home.result()
         big = f_big.result() if f_big else []
-        _progress(88, "扫描大文件" if f_big else "整理结果")
+        _progress(88, "扫描大文件" if f_big else "汇总结果")
 
     r["installedCount"] = len(installed)
 
@@ -495,7 +495,7 @@ def scan(args):
     procs = process_snapshot()
     app_caches = []
     if cache_candidates:
-        _progress(80, "扫描在用 App 缓存")
+        _progress(80, "扫描应用缓存")
 
         def _cache_size(pair):
             c, p = pair
@@ -536,7 +536,7 @@ def scan(args):
         g["name"] = rules["knownNames"].get(g["baseId"], g["baseId"])
         if any(b.lower() in procs for b in g["bundleIds"]):
             g["bucket"] = "confirm"
-            g["why"] += "；检测到相关进程正在运行，禁止删除"
+            g["why"] += "；检测到相关进程正在运行，暂不可清理"
     r["leftoverGroups"] = sorted(groups.values(), key=lambda x: -x["kb"])
 
     # 缓存
@@ -548,7 +548,7 @@ def scan(args):
     r["devCaches"] = dev
     r["devPaths"] = sorted({d["path"] for d in dev})
     r["browsers"] = browser_caches(home)
-    _progress(90, "分析微信/企微/QQ 数据")
+    _progress(90, "分析微信/企业微信/QQ 数据")
     r["special"] = special_clean(home)
 
     r["cloudStorage"] = [{"path": p, "kb": k} for p, k in cloud_sizes.items()]
@@ -605,10 +605,10 @@ def render_md(r, args):
     a(f"- 完全磁盘访问（FDA）：{fda_txt}（{r['fda']['detail']}）")
     a(f"- 已安装 App：{r['installedCount']} 个")
     tb, used, free = r["disk"]["total"], r["disk"]["used"], r["disk"]["free"]
-    a(f"- 数据卷：{tb/1e9:.0f}G 中已用 {used/1e9:.0f}G，可用 **{free/1e9:.0f}G**")
+    a(f"- 数据卷：{tb/1e9:.0f} GB 中已用 {used/1e9:.0f} GB，可用 **{free/1e9:.0f} GB**")
     if r["disk"]["homeKb"]:
-        a(f"- 家目录：{human(r['disk']['homeKb'])}")
-    a(f"- 扫描耗时：{r['elapsed']}s" + ("（quick：未扫大文件）" if args.quick else ""))
+        a(f"- 个人文件夹：{human(r['disk']['homeKb'])}")
+    a(f"- 扫描耗时：{r['elapsed']}s" + ("（快速模式：未扫描大文件）" if args.quick else ""))
     a("- 扫描范围：`~/Library/Containers`、`~/Library/Caches`、`~/.cache`、开发缓存、"
       "`~/Library/CloudStorage`、`~/.Trash`、大文件；**不含** `/private/var`、`/Library`、其他用户。")
     if status == "denied":
@@ -644,23 +644,23 @@ def render_md(r, args):
                          "note": f"{g['why']}；{g['count']} 个目录；示例 `{g['paths'][0]}`"})
         return rows
 
-    table("一、可安全清理（已卸载媒体/会议类，缓存为主）", group_rows("safe"))
-    table("二、需你确认（可能含聊天记录/文档/笔记/下载内容）", group_rows("confirm"))
+    table("一、推荐清理（已卸载媒体/会议类应用，缓存为主）", group_rows("safe"))
+    table("二、需确认（可能含聊天记录/文档/笔记/下载内容）", group_rows("confirm"))
     if small:
-        a(f"> 另有 **{len(small)}** 个小于 {args.min_leftover_mb}M 的残留碎片，"
+        a(f"> 另有 **{len(small)}** 个小于 {args.min_leftover_mb} MB 的残留碎片，"
           f"合计 {human(sum(g['kb'] for g in small))}。")
         a("")
 
     dev_paths = set(r.get("devPaths", []))
     table("三、系统缓存（不建议清理）",
-          [{"path": c["path"], "kb": c["kb"], "note": "系统缓存，收益小，不建议动"}
+          [{"path": c["path"], "kb": c["kb"], "note": "系统缓存，释放空间有限，不建议清理"}
            for c in r["caches"] if c.get("system") and c["kb"] >= th["displayMinMb"] * 1024])
     def cache_note(c):
         note = "缓存，可重建"
         if "ms-playwright" in c["path"]:
-            note += "；Playwright 浏览器，项目测试在用请保留"
+            note += "；Playwright 浏览器，测试仍在使用请保留"
         elif c["kb"] >= 500 * 1024:
-            note += "；⚠️ 较大，确认对应 App 是否仍需要"
+            note += "；体积较大，请确认对应应用仍在使用"
         return note
 
     table("四、用户缓存（可重建）",
@@ -670,13 +670,13 @@ def render_md(r, args):
            and c["path"] not in dev_paths])
     table("五、开发缓存（可再生，按说明清理）",
           [{"path": d["path"], "kb": d["kb"], "note": d["advice"]} for d in r["devCaches"]])
-    table("六、云盘目录（不要动）",
+    table("六、云盘目录（不建议清理）",
           [{"path": c["path"], "kb": c["kb"], "note": "云盘同步目录，**不要直接删文件**"}
            for c in r["cloudStorage"]])
-    table(f"七、大文件（> {args.min_mb}M）",
+    table(f"七、大文件（> {args.min_mb} MB）",
           [{"path": b["path"], "kb": b["kb"], "note": b["category"]} for b in r["bigFiles"]])
 
-    a("## 八、不要动")
+    a("## 八、不建议清理")
     a("")
     a("- `~/Library/Mail`、`~/Library/Messages`、`~/Library/Photos`、`~/Library/Keychains`")
     a("- `~/Library/CloudStorage`（云盘：本地删除可能同步删除云端）")
@@ -687,9 +687,9 @@ def render_md(r, args):
     est = r.get("estimate") or estimate_of(r, args.min_leftover_mb)
     safe_kb, cache_kb, dev_kb = est["safeKb"], est["cacheKb"], est["devKb"]
     overlap_kb = est["overlapKb"]
-    a("## 九、可回收估算")
+    a("## 九、预计可释放")
     a("")
-    a(f"- 可安全清理：**{human(safe_kb)}**")
+    a(f"- 推荐清理：**{human(safe_kb)}**")
     a(f"- 用户缓存（已去重）：**{human(cache_kb)}**（删除后会重新下载/重建）")
     a(f"- 开发缓存：**{human(dev_kb)}**（用到时重新下载）")
     a(f"- 合计约：**{human(safe_kb + cache_kb + dev_kb)}**（不含需确认项与废纸篓）")
@@ -706,7 +706,7 @@ def render_md(r, args):
     a("npm cache clean --force")
     a("pnpm store prune")
     a("")
-    a("# 卸载残留：仅「可安全清理」档，且只移到废纸篓（-n 不覆盖重名）")
+    a("# 卸载残留：仅「推荐清理」档，且只移到废纸篓（-n 不覆盖重名）")
     emitted = 0
     for g in big_g:
         if g["bucket"] != "safe" or g["kb"] < th["commandMinMb"] * 1024:
@@ -715,7 +715,7 @@ def render_md(r, args):
             a(f'mv -n "{p}" ~/.Trash/')
             emitted += 1
     if emitted == 0:
-        a("# 本次可安全清理项均 <100M，未生成 mv；如需清理请逐项确认")
+        a("# 本次推荐清理项均小于 100 MB，未生成 mv；如需清理请逐项确认")
     a("```")
     a("")
     a("> 需确认项不生成命令；永久删除必须二次确认。")
@@ -734,7 +734,7 @@ def main():
     ap.add_argument("--min-mb", type=int, default=300, help="大文件阈值 MB")
     ap.add_argument("--min-leftover-mb", type=int, default=10, help="残留展示阈值 MB")
     ap.add_argument("--quick", action="store_true", help="跳过全盘大文件扫描")
-    ap.add_argument("--home-total", action="store_true", help="额外统计家目录总大小（慢 ~30s）")
+    ap.add_argument("--home-total", action="store_true", help="额外统计个人文件夹总大小（慢 ~30s）")
     ap.add_argument("--no-cloud", action="store_true", help="跳过 CloudStorage 统计")
     ap.add_argument("--redact", action="store_true", help="脱敏：HOME→~、主机名打码")
     ap.add_argument("--check-permissions", action="store_true",

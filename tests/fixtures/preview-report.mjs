@@ -10,8 +10,8 @@ export function previewReport() {
     devCaches: [
       { path: home + '/Library/Developer/Xcode/DerivedData', kb: 1.6 * gb, advice: 'Xcode 构建缓存，安全可再生', cleanable: true },
       { path: home + '/.npm/_cacache', kb: .8 * gb, advice: 'npm cache clean --force', cleanable: true },
-      { path: home + '/.m2/repository', kb: .4 * gb, advice: 'Maven 本地仓库；离线构建可能受影响', cleanable: true },
-      { path: home + '/Library/Developer/Xcode/Archives', kb: 3 * gb, advice: 'App 归档；提交/回滚可能需要，需确认', cleanable: false },
+      { path: home + '/.m2/repository', kb: .4 * gb, advice: 'Maven 仓库，构建时会重新下载', cleanable: true },
+      { path: home + '/Library/Developer/Xcode/Archives', kb: 3 * gb, advice: '应用归档，提交或回滚时可能需要，需确认', cleanable: false },
     ],
     browsers: [{ name: 'Chrome', path: home + '/Library/Caches/Chrome', kb: 1.6 * gb }],
     caches: [],

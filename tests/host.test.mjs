@@ -81,6 +81,24 @@ test('clean refuses without a fresh scan', async () => {
   assert.equal(code, 409)
 })
 
+test('allowed paths exclude admin, non-cleanable and system caches', () => {
+  const report = {
+    caches: [
+      { path: '/tmp/ok-cache', kb: 1 },
+      { path: 'C:\\Windows\\Temp', kb: 1, admin: true },
+      { path: 'C:\\Users\\x\\AppData\\Local\\Temp', kb: 1, cleanable: false },
+      { path: '/tmp/sys-cache', kb: 1, system: true },
+    ],
+    devCaches: [{ path: '/tmp/dev-ok', kb: 1 }, { path: '/tmp/dev-no', kb: 1, cleanable: false }],
+  }
+  const allowed = plugin.allowedPaths(report)
+  assert.ok(allowed.has('/tmp/ok-cache'))
+  assert.ok(allowed.has('/tmp/dev-ok'))
+  for (const blocked of ['C:\\Windows\\Temp', 'C:\\Users\\x\\AppData\\Local\\Temp', '/tmp/sys-cache', '/tmp/dev-no']) {
+    assert.ok(!allowed.has(blocked), `${blocked} must stay out of the clean allow-set`)
+  }
+})
+
 test('move refuses without a fresh scan', async () => {
   const { code } = await call('/move', 'POST', JSON.stringify({ paths: [], destination: root }))
   assert.equal(code, 400)
