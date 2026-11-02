@@ -1,5 +1,13 @@
 # deepclean-mydisk 插件变更
 
+## 0.11.0
+- 在用 App 缓存清理：扫描器新增 `appCaches`（仅 Caches/tmp/Code Cache/GPUCache 等可再生目录，跳过聊天容器与个人目录，运行中 App 不进入允许集合）；清理页新增「应用缓存」分类，向导推荐项包含可清理的 App 缓存
+- 真实释放估算：新增 `POST /api/reclaim`，区分逻辑大小与分配大小（`st_blocks`），统计 APFS 本地快照；清理/向导确认框显示「预计实际释放 X（逻辑 Y）」，完成后显示「可用空间 A → B（+C）」
+- 废纸篓闭环：新增 `purgeMoved` 与 `POST /api/purge`，历史页与向导完成页支持「永久删除本批次」（行内二次确认，仅限本插件移入隔离区的条目，拒绝符号链接/隔离区外路径），并写 `purge` 审计
+- 安全文案更新为「默认只移动…永久删除需二次确认」
+- Windows：报告契约补 `appCaches` 字段（扫描逻辑待实现）
+- 测试 92（90 pass / 2 skip）
+
 ## 0.10.1
 - 修复 Windows CI：页面测试通过精确源码片段注入视图，在 CRLF checkout 下失配；读取源码时归一化换行，并新增 `.gitattributes` 统一文本文件为 LF。
 

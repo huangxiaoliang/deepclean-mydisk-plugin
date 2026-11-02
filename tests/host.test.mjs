@@ -203,3 +203,80 @@ test('directory totals include hidden entries, report metadata and refuse links'
     assert.ok(!JSON.parse(dest.body).folders.some(c=>c.name==='outside'))
   } finally { if(home===undefined) delete process.env.HOME; else process.env.HOME=home }
 })
+
+test('history replays legacy restores and refuses a reused destination from an old batch', async () => {
+  const folder=path.join(root,'legacy-history')
+  fs.mkdirSync(folder)
+  const a=path.join(folder,'A'),b=path.join(folder,'B'),shared=path.join(folder,'old-trash-name')
+  fs.writeFileSync(shared,'SECOND')
+  const log=path.join(process.env.DSH_HOME,'deepclean-audit.log')
+  fs.mkdirSync(path.dirname(log),{recursive:true})
+  const entries=[
+    {action:'clean',batchId:'legacy-first',moved:[{from:a,to:shared}]},
+    {action:'restore',batchId:'legacy-first',results:[{path:a,ok:true}]},
+    {action:'clean',batchId:'legacy-second',moved:[{from:b,to:shared}]},
+  ]
+  fs.appendFileSync(log,entries.map(e=>JSON.stringify(e)).join('\n')+'\n')
+  const history=(await call('/history')).body.cleans
+  assert.equal(history.find(b=>b.batchId==='legacy-first').restorable,0)
+  assert.equal(history.find(b=>b.batchId==='legacy-second').restorable,1)
+  assert.equal((await call('/restore','POST',JSON.stringify({batchId:'legacy-first'}))).code,409)
+  assert.equal(fs.readFileSync(shared,'utf8'),'SECOND')
+  const restored=await call('/restore','POST',JSON.stringify({batchId:'legacy-second'}))
+  assert.equal(restored.body.results[0].ok,true)
+  assert.equal(fs.readFileSync(b,'utf8'),'SECOND')
+  assert.equal(fs.existsSync(a),false)
+})
+
+test('legacy destination reuse without a restore log belongs only to the newest batch', async () => {
+  const folder=path.join(root,'legacy-reuse')
+  fs.mkdirSync(folder)
+  const to=path.join(folder,'shared'),log=path.join(process.env.DSH_HOME,'deepclean-audit.log')
+  fs.writeFileSync(to,'NEW')
+  for(const [batchId,from] of [['reuse-old',path.join(folder,'old')],['reuse-new',path.join(folder,'new')]]) {
+    fs.appendFileSync(log,JSON.stringify({action:'clean',batchId,moved:[{from,to}]})+'\n')
+  }
+  const history=(await call('/history')).body.cleans
+  assert.equal(history.find(b=>b.batchId==='reuse-old').restorable,0)
+  assert.equal(history.find(b=>b.batchId==='reuse-new').restorable,1)
+})
+
+test('partial legacy restores retain only the failed item for retry', async () => {
+  const folder=path.join(root,'partial-history')
+  fs.mkdirSync(folder)
+  const fromA=path.join(folder,'A'),fromB=path.join(folder,'B'),toA=path.join(folder,'trash-A'),toB=path.join(folder,'trash-B')
+  fs.writeFileSync(toA,'SOMEONE ELSE');fs.writeFileSync(toB,'RETRY')
+  const entries=[{action:'clean',batchId:'partial',moved:[{from:fromA,to:toA},{from:fromB,to:toB}]},{action:'restore',batchId:'partial',results:[{path:fromA,ok:true},{path:fromB,ok:false}]}]
+  fs.appendFileSync(path.join(process.env.DSH_HOME,'deepclean-audit.log'),entries.map(e=>JSON.stringify(e)).join('\n')+'\n')
+  const batch=(await call('/history')).body.cleans.find(b=>b.batchId==='partial')
+  assert.equal(batch.restorable,1)
+  const restored=await call('/restore','POST',JSON.stringify({batchId:'partial'}))
+  assert.deepEqual(restored.body.results.map(r=>r.path),[fromB])
+  assert.equal(fs.readFileSync(fromB,'utf8'),'RETRY')
+  assert.equal(fs.readFileSync(toA,'utf8'),'SOMEONE ELSE')
+})
+
+test('reclaim estimates logical and allocated bytes', async () => {
+  fs.mkdirSync(process.env.DSH_HOME, { recursive: true })
+  const file = path.join(root, 'reclaim.bin')
+  fs.writeFileSync(file, Buffer.alloc(1234, 1))
+  const { code, body } = await call('/reclaim', 'POST', JSON.stringify({ paths: [file] }))
+  assert.equal(code, 200)
+  assert.equal(body.logicalBytes, 1234)
+  assert.ok(body.allocatedBytes >= 1234)
+  assert.equal(body.files, 1)
+})
+
+test('purge permanently deletes a batch moved into the quarantine trash', async () => {
+  const trashDir = path.join(process.env.DEEPCLEAN_TRASH_DIR, 'deepclean-testbatch')
+  fs.mkdirSync(trashDir, { recursive: true })
+  const item = path.join(trashDir, 'x.bin')
+  fs.writeFileSync(item, 'x')
+  const audit = path.join(process.env.DSH_HOME, 'deepclean-audit.log')
+  fs.mkdirSync(process.env.DSH_HOME, { recursive: true })
+  fs.appendFileSync(audit, JSON.stringify({ action: 'clean', batchId: 'testbatch', moved: [{ from: path.join(root, 'orig.bin'), to: item }], results: [] }) + '\n')
+  const { code, body } = await call('/purge', 'POST', JSON.stringify({ batchId: 'testbatch' }))
+  assert.equal(code, 200)
+  assert.equal(body.purged, 1)
+  assert.equal(fs.existsSync(item), false)
+})

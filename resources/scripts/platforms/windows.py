@@ -308,7 +308,7 @@ def scan(args):
         "disk": {"total": disk.total, "used": disk.used, "free": disk.free},
         "access": {"admin": admin, "detail": "管理员" if admin else "普通用户"},
         "installedCount": 0,
-        "caches": [], "leftovers": [], "devCaches": [], "cloud": [],
+        "caches": [], "leftovers": [], "devCaches": [], "cloud": [], "appCaches": [],
         "bigFiles": [], "trashKb": None,
         "scope": f"{local}、{roaming}、{programdata}、Temp、浏览器缓存、开发缓存、云盘、"
                  f"{home}（不含 AppData 的大文件）",
@@ -535,7 +535,7 @@ def self_test():
         r = {"version": VERSION, "platform": PLATFORM, "generatedAt": "x", "host": "h",
              "home": str(tmp), "access": {"admin": False, "detail": "普通用户"},
              "installedCount": len(apps), "disk": {"total": 1, "used": 1, "free": 1},
-             "caches": [], "leftovers": [], "devCaches": [], "cloud": [],
+             "caches": [], "leftovers": [], "devCaches": [], "cloud": [], "appCaches": [],
              "bigFiles": [], "truncated": False, "elapsed": 0.1, "scope": "x"}
         ns = argparse.Namespace(redact=False, quick=True, min_mb=300, min_leftover_mb=10)
         md = render(r, ns)

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { moveToTrash, undoBatch, restoreMoved, auditLogPath } from '../lib/clean.js'
+import { moveToTrash, undoBatch, restoreMoved, purgeMoved, auditLogPath } from '../lib/clean.js'
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dc-clean-test-'))
 process.env.DSH_HOME = path.join(root, 'dsh')
@@ -67,5 +67,27 @@ test('restoreMoved: cross-restart restore from audit-shaped items', () => {
   assert.equal(fs.existsSync(file), false)
   const out = restoreMoved(res.moved, res.batchId)
   assert.equal(out.results.every((r) => r.ok), true)
+  assert.equal(fs.existsSync(file), true)
+})
+
+test('purgeMoved: permanently deletes moved items and audits', () => {
+  const dir = makeDir('purge')
+  const file = path.join(dir, 'p.txt')
+  fs.writeFileSync(file, 'purge-me')
+  const res = moveToTrash([file], new Set([file]))
+  assert.equal(fs.existsSync(res.moved[0].to), true)
+  const out = purgeMoved(res.moved, res.batchId)
+  assert.equal(out.purged, 1)
+  assert.equal(fs.existsSync(res.moved[0].to), false)
+  assert.match(fs.readFileSync(auditLogPath(), 'utf8'), /"action":"purge"/)
+})
+
+test('purgeMoved: refuses paths outside trash roots', () => {
+  const dir = makeDir('purge-outside')
+  const file = path.join(dir, 'x.txt')
+  fs.writeFileSync(file, 'x')
+  const out = purgeMoved([{ from: file, to: file }], 'b')
+  assert.equal(out.purged, 0)
+  assert.match(out.results[0].error, /隔离区|废纸篓/)
   assert.equal(fs.existsSync(file), true)
 })

@@ -253,3 +253,26 @@ test('moving all known large files does not mislabel the scan as missing coverag
   assert.ok(html.includes('没有发现大文件'))
   assert.ok(!html.includes('当前体检未覆盖大文件，请进行完整扫描</p>'))
 })
+
+test('clean page shows installed app cache category', () => {
+  const mutate = cases.find(([n]) => n === 'clean-junk')[1]
+  const overview = { ...mockOverview, report: { ...mockOverview.report,
+    appCaches: [{ baseId: 'com.test.app', app: 'Test App', kb: 5000, paths: ['/tmp/appcache/Caches'], running: false, cleanable: true, count: 1 }] } }
+  const zh = renderWithData(mutate, 'zh', overview)
+  assert.match(zh, /应用缓存/)
+  assert.match(zh, /Test App/)
+  const en = renderWithData(mutate, 'en', overview)
+  assert.match(en, /App cache/)
+})
+
+test('history offers permanent deletion of a batch', () => {
+  const mutate = cases.find(([n]) => n === 'history')[1]
+  const zh = renderWithData(mutate, 'zh')
+  assert.match(zh, /永久删除此批次/)
+})
+
+test('wizard confirm estimates real release', () => {
+  const mutate = cases.find(([n]) => n === 'home-wizard-confirm')[1]
+  const zh = renderWithData(mutate, 'zh')
+  assert.match(zh, /正在估算实际释放/)
+})

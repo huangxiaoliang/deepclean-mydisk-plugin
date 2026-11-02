@@ -84,6 +84,8 @@ node scripts/preview.mjs                                    # http://127.0.0.1:4
 5. `lib/platform.js:parseTreeOutput` 未被生产代码调用（tree 已改用 `tree.py` 的 JSON），仅 `tests/windows-regressions.test.mjs` 引用。
 6. Linux：宿主有 `bootMount` / `listVolumes` / `xdg-open` 分支，但 `deepclean.py` 对非 win/darwin 回退 macOS 扫描器，**未验收**；对外口径为「支持 macOS / Windows」。
 7. 验收范围：`design-qa.md` 只覆盖浅色首页 + 清理页 + 英文窄窗口（隔离预览），Windows 真机 / 暗色主题 / 无障碍**未验收**；英文模式下少量动态提示仍有中文残留。
+8. **Windows 的 `appCaches` 尚未实现**：`platforms/windows.py` 已预留空数组，宿主/客户端已消费；Windows 端扫描逻辑待补。
+9. **永久删除边界**：`purgeMoved` 仅允许删除「本插件移入废纸篓/隔离区」的批次条目，拒绝隔离区外路径与符号链接；不要放宽为任意路径删除。
 
 ## 独立性与同步
 - 本仓库是独立项目，**不依赖** deepclean-mydisk skill 仓库；

@@ -45,7 +45,7 @@ test('client bundle renders Chinese and English', () => {
 })
 
 test('client bundle contains safety copy and platform-aware commands', () => {
-  assert.match(source, /Moves only/)
+  assert.match(source, /Moves by default|Moves only/)
   assert.match(source, /Why here/)
   assert.match(source, /Move-Item -LiteralPath/)
   assert.doesNotMatch(source, /rm -rf/)
