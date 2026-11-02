@@ -8,7 +8,7 @@ DSH 插件：macOS / Windows 原生侧边栏磁盘空间工具。**只读体检�
 > Windows 真机验收：`docs/windows-acceptance.md` + `scripts/acceptance-windows.ps1`
 > 视觉验收：[design-qa.md](design-qa.md)
 
-> 本文档描述 v0.10.0；更早版本见文末「版本历史」。
+> 本文档描述 v0.10.1；更早版本见文末「版本历史」。
 
 ## 打开面板即显示
 
@@ -226,6 +226,10 @@ node scripts/preview.mjs                                   # 隔离预览
 - 依赖本机 Python 3（Windows `py -3`）；缺失时扫描与权限检查不可用。
 
 ## 版本历史
+
+### v0.10.1 — CI 修复
+
+- 页面测试读取源码时归一化换行（Windows CRLF checkout 不再失配）；新增 `.gitattributes` 统一文本文件为 LF。
 
 ### v0.10.0 — 首页与清理页改版、空间重做
 

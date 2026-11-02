@@ -5,7 +5,8 @@ import { createRequire } from 'node:module'
 import { renderToString } from 'react-dom/server'
 
 const require = createRequire(import.meta.url)
-const base = fs.readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+// 归一化换行：Windows checkout 可能是 CRLF，而下面的视图注入依赖精确的 LF 片段。
+const base = fs.readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
 
 function renderView(mutate, lang = 'zh') {
   const source = mutate(base)
