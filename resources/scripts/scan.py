@@ -445,7 +445,8 @@ def scan(args):
         owner = belongs_to_installed(bid, installed, rules.get("componentOf"), base)
         if owner:
             cont.append({"path": path, "bundleId": bid, "baseId": base, "kb": kb,
-                         "bucket": "keep", "why": f"已安装：{owner['name']}"})
+                         "bucket": "keep", "why": f"已安装：{owner['name']}",
+                         "installed": True, "installedName": owner['name']})
             continue
         if bid.startswith("com.apple."):
             cont.append({"path": path, "bundleId": bid, "baseId": base, "kb": kb,
@@ -456,6 +457,68 @@ def scan(args):
                      "bucket": bucket, "why": why})
     cont.sort(key=lambda x: -x["kb"])
     r["containers"] = cont
+
+    # 在用 App 的可再生缓存（仅 Caches/tmp；聊天类容器交给 special 专清）
+    chat_prefixes = ("com.tencent.xinwechat", "com.tencent.weworkmac", "com.tencent.qq")
+    cache_names = {"caches", "cache", "tmp", "temp", "code cache", "gpucache",
+                   "cachestorage", "service worker", "crashpad"}
+    skip_top = {"Documents", "Desktop", "Downloads", "Movies", "Music", "Pictures"}
+
+    def _app_cache_dirs(cont_path):
+        base = os.path.join(cont_path, "Data")
+        if not os.path.isdir(base):
+            return []
+        hits = []
+        for root, dirs, _files in os.walk(base):
+            rel = os.path.relpath(root, base)
+            if rel != "." and rel.split(os.sep)[0] in skip_top:
+                dirs[:] = []
+                continue
+            depth = 0 if rel == "." else rel.count(os.sep) + 1
+            if depth > 4:
+                dirs[:] = []
+                continue
+            if os.path.basename(root).lower() in cache_names:
+                hits.append(root)
+                dirs[:] = []
+        return hits
+
+    cache_candidates = []
+    for c in cont:
+        if not c.get("installed"):
+            continue
+        low = c["baseId"].lower()
+        if low.startswith("com.apple.") or any(low.startswith(p) for p in chat_prefixes):
+            continue
+        for p in _app_cache_dirs(c["path"]):
+            cache_candidates.append((c, p))
+    procs = process_snapshot()
+    app_caches = []
+    if cache_candidates:
+        _progress(80, "扫描在用 App 缓存")
+
+        def _cache_size(pair):
+            c, p = pair
+            kb = du_one(p, timeout=60)
+            return (c, p, kb) if kb else None
+
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            rows = [x for x in ex.map(_cache_size, cache_candidates) if x]
+        by_app = {}
+        for c, p, kb in rows:
+            g = by_app.setdefault(c["baseId"], {"baseId": c["baseId"],
+                                                 "app": c.get("installedName") or c["baseId"],
+                                                 "kb": 0, "paths": [], "running": False})
+            g["kb"] += kb
+            g["paths"].append(p)
+        for g in by_app.values():
+            g["running"] = g["app"].lower() in procs or g["baseId"].lower() in procs
+            g["cleanable"] = not g["running"]
+            g["count"] = len(g["paths"])
+            if g["kb"] >= 1024:
+                app_caches.append(g)
+        app_caches.sort(key=lambda x: -x["kb"])
+    r["appCaches"] = app_caches[:80]
 
     # 归并 + 运行中检查
     groups = {}
@@ -469,7 +532,6 @@ def scan(args):
         g["count"] += 1
         g["paths"].append(c["path"])
         g["bundleIds"].append(c["bundleId"])
-    procs = process_snapshot()
     for g in groups.values():
         g["name"] = rules["knownNames"].get(g["baseId"], g["baseId"])
         if any(b.lower() in procs for b in g["bundleIds"]):
