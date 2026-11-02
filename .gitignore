@@ -5,3 +5,8 @@ __pycache__/
 *.log
 report.md
 report.json
+acceptance-report/
+
+# Claude Code 本地个人配置（不共享给其他 agent / 不提交）
+CLAUDE.local.md
+.claude/settings.local.json
