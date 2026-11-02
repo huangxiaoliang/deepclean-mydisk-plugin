@@ -1,0 +1,53 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm test)",
+      "Bash(npm test:*)",
+      "Bash(node --check:*)",
+      "Bash(node --test:*)",
+      "Bash(node scripts/preview.mjs)",
+      "Bash(node scripts/preview.mjs:*)",
+      "Bash(python3 resources/scripts/deepclean.py:*)",
+      "Bash(python3 tests/photos-regressions.py)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(ls:*)",
+      "Bash(wc:*)",
+      "Bash(file:*)"
+    ],
+    "ask": [
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git tag:*)",
+      "Bash(git checkout:*)",
+      "Bash(git restore:*)",
+      "Bash(git reset:*)",
+      "Bash(gh:*)",
+      "Bash(mv:*)",
+      "Bash(cp:*)",
+      "Bash(chmod:*)",
+      "Bash(npm install:*)",
+      "Bash(pnpm install:*)",
+      "Bash(brew:*)"
+    ],
+    "deny": [
+      "Bash(rm:*)",
+      "Bash(rmdir:*)",
+      "Bash(unlink:*)",
+      "Bash(shred:*)",
+      "Bash(sudo:*)",
+      "Bash(diskutil:*)",
+      "Bash(launchctl:*)",
+      "Bash(defaults write:*)",
+      "Bash(git clean:*)",
+      "Bash(npm publish:*)",
+      "Bash(mkfs:*)",
+      "Bash(dd:*)",
+      "Bash(chown:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)"
+    ]
+  }
+}

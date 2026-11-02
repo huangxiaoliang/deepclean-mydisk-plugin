@@ -1,7 +1,7 @@
 # deepclean-mydisk-plugin — 项目说明（给后续 Agent）
 
 ## 是什么
-DSH 插件：原生侧边栏磁盘空间工具（macOS / Windows），只读体检 + 空间可视化 + 相似照片 + 跨盘搬家 + 可撤销清理。
+DSH 插件：原生侧边栏磁盘空间工具（macOS / Windows），只读体检 + 空间可视化 + 相似照片 + 微信/企微/QQ 专清 + 跨盘搬家 + 可撤销清理。
 **只移动、不删除**；浏览器端是手写 bundle，**没有构建步骤**。
 
 ## 结构
@@ -18,7 +18,7 @@ DSH 插件：原生侧边栏磁盘空间工具（macOS / Windows），只读体�
 | 文件 | 职责 |
 |---|---|
 | `resources/scripts/deepclean.py` | 统一 CLI 入口（`VERSION = 0.5.0`）：平台分发、`--self-test`、`--check-permissions`、`--version` |
-| `resources/scripts/scan.py` | macOS 只读扫描（`du`/`plutil`/`sips`/`statvfs`，7 线程，进度走 stderr `PROGRESS`） |
+| `resources/scripts/scan.py` | macOS 只读扫描（`du`/`plutil`/`sips`/`statvfs`，7 线程，进度走 stderr `PROGRESS`）；含微信/企微/QQ 专清聚合（缓存类可清理，企微 Profile 只读） |
 | `resources/scripts/platforms/windows.py` | Windows 只读扫描（注册表已装程序、缓存与残留、UWP、OneDrive、大文件；预算 120s；9 项自检） |
 | `resources/scripts/photos.py` | 相似照片 dHash 指纹与分组（macOS `sips`；Windows 走 PowerShell 批量解码） |
 | `resources/scripts/photos-windows.ps1` | Windows `.NET` 指纹 / 缩略图解码，**不依赖 Pillow**；只写显式指定的临时 JPEG |
@@ -74,6 +74,7 @@ node scripts/preview.mjs                                    # http://127.0.0.1:4
 - `/api/report` 的 GET 有副作用：除 `cached=1` 外都会**启动扫描**并返回 202；客户端已不再调用它，改由 `/api/scan`。
 - `/api/tree` 走 `tree.py` + 60s 缓存（100 条 LRU），使用独立子进程句柄，浏览目录**不会**取消正在进行的扫描。
 - 测试按平台跳过：macOS 跳 2 个 Windows 专用 HTTP 用例（`tests/host.test.mjs:130`、`:150`）；Windows 预期跳 3 个（tree 拒家目录外、permissions、符号链接）。CI 两端都会跑全量。
+- 换行统一 **LF**（`.gitattributes` 的 `* text=auto eol=lf`）：页面测试用源码字符串替换注入视图，CRLF checkout 会让断言失配；不要改该文件或改用会转 CRLF 的克隆配置。
 
 ## 已知缺口（改代码前先看，均为代码事实）
 1. **Windows 报告字段与消费方不一致**：`platforms/windows.py` 产出 `leftovers` / `cloud`，而宿主 `allowedPaths` 与客户端只读 `leftoverGroups` / `caches` / `devCaches` / `browsers` / `special`。结果：Windows 的「已卸载残留 / UWP / OneDrive」只出现在 Markdown 报告，**不进面板清单、也不进清理允许集合**。
@@ -88,6 +89,11 @@ node scripts/preview.mjs                                    # http://127.0.0.1:4
 - 本仓库是独立项目，**不依赖** deepclean-mydisk skill 仓库；
 - 扫描器是内置副本：`scripts/sync-scanner.sh <skill-repo-path>` 只同步 `scan.py` / `deepclean.py` / `platforms/` / `rules.json`；`photos.py` / `tree.py` / `photos-windows.ps1` 是插件独有，不要覆盖；
 - 发布：改 `package.json` version → 更新 `CHANGELOG.md` → commit → `git tag vX.Y.Z` → `gh release create`。
+
+## 给 Claude Code
+- `CLAUDE.md` 通过 `@AGENTS.md` 引用本文，只补充 Claude Code 的工作约定与验证闭环；项目事实以本文为准，改结构/约束时**只改这里**。
+- `.claude/settings.json` 是权限设置（allow / ask / deny），`.claude/skills/` 是 `/test`、`/preview`、`/self-check`、`/release` 四个 skills（Claude Code 2.1 起 `.claude/commands/` 已废弃）。
+- 改 `.claude/` 等同于改开发流程，提交前要和其他代码一样 review。
 
 ## 本地安装（DSH profile）
 ```bash
