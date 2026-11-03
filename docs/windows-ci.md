@@ -1,13 +1,13 @@
 # 无 Windows 电脑时的自动验收
 
-仓库保留原有 `tests` 双平台工作流，另新增 **Windows acceptance**：在固定的 `windows-2022` 和 `windows-2025` x64 环境执行原生验收。测试失败仍上传报告，不将已知产品缺陷标为预期通过。
+仓库保留原有 `tests` 双平台工作流，另新增 **Windows acceptance**：在固定的 `windows-2022`、`windows-2025` x64 与 `windows-11-arm`（Windows 11 Arm64 客户端镜像）环境执行原生验收。测试失败仍上传报告，不将已知产品缺陷标为预期通过。
 
 ## 触发与查看结果
 
 1. 把需要验证的产品代码、工作流及 `scripts/windows-ci/` 一起提交并推送到同一个分支。仅保存本地文件不会触发 GitHub Actions。
 2. 修改 `lib/`、`resources/`、验收脚本、工作流或 package.json 的 push/PR 会自动运行。首次新增工作流时，推送本身即可触发，不依赖手动按钮。
 3. 工作流进入默认分支后，也可在 GitHub → Actions → **Windows acceptance** → **Run workflow** 选择分支运行。
-4. 点击对应的 Windows job 查看 Summary，在运行页面下载 `windows-acceptance-windows-2022-*` / `windows-acceptance-windows-2025-*`。
+4. 点击对应的 Windows job 查看 Summary，在运行页面下载 `windows-acceptance-windows-2022-*` / `windows-acceptance-windows-2025-*` / `windows-acceptance-windows-11-arm-*`。
 5. 解压后先看 `summary.md`，再看失败阶段的 `.log`。报告保留 14 天。
 
 ## 覆盖范围
@@ -22,6 +22,8 @@
 
 `environment.json` 包含 commit SHA、runner镜像/系统/架构、Node版本。`results.json` 提供每阶段退出码和耗时。成功完成的浏览器扫描还会生成合成数据的 JSON/Markdown 报告；若扫描中途崩溃，以 `browser-scan.log` 的 traceback 为准，不会伪造扫描报告。
 
+`windows-11-arm` 是 Windows 11 客户端 OS（不是 Server），用于补客户端分支、UWP/MSIX 布局与 ARM64 `.NET` 解码。若该镜像无法创建可丢弃测试卷，`volume-setup` 会显式记作 `SKIP` 并写进 `summary.md`，跨卷用例随之标记 skip，其余原生用例照常执行；Server 镜像仍必须提供测试卷，不允许静默跳过。该 label 不可用时 job 会直接失败，按 GitHub 提示检查仓库/计划是否可用 Arm64 runner。
+
 OS发现（注册表、进程集合等）在浏览器场景中固定为合成值，以便稳定复现；浏览器目录枚举、文件大小、扫描主流程、报告生成仍使用生产代码。真实进程解析与原生图片解码由原有回归覆盖。
 
 原生用例只访问自己创建的临时文件；清理/恢复/永久删除操作不面向个人资料。应用数据保护测试只提交合成路径用于判断。验收结束后托管 runner 被回收。
@@ -35,7 +37,7 @@ OS发现（注册表、进程集合等）在浏览器场景中固定为合成值
 
 这些是有效的失败信号，不应通过删除断言、添加 skip 或 `continue-on-error` 隐藏。每个阶段独立执行，一个阶段失败不会阻止后续用例运行；最终任一阶段失败都会使 job 失败。
 
-VHD挂载/管理员权限/runner配置失败同样报红，需查看 volume-setup.log 区分环境问题与产品问题；不能以跳过跨卷测试冒充验收通过。
+VHD挂载/管理员权限/runner配置失败同样报红，需查看 volume-setup.log 区分环境问题与产品问题；不能以跳过跨卷测试冒充验收通过。唯一例外是显式声明 `DEEPCLEAN_CI_ALLOW_MISSING_VOLUME=1` 的 `windows-11-arm` 客户端镜像：它的 SKIP 会写进 `summary.md` / `results.json`，且只跳过跨卷用例；两个 Server job 仍必须提供测试卷。
 
 ## 本地运行
 
@@ -57,6 +59,6 @@ python3 scripts/windows-ci/scanner.py
 
 ## 无法据此宣称已覆盖
 
-Windows Server 并非 Windows 11 用户桌面。本工作流不包含 DSH 桌面交互、截图/录屏、OneDrive真实同步、真实微信/企业微信安装目录、UAC桌面提示、VSS空间变化、外置盘突然断开或Windows ARM兼容性。
+Windows Server / Windows 11 Arm64 镜像仍不是普通用户的 Windows 11 x64 桌面。本工作流不包含 DSH 桌面交互、截图/录屏、OneDrive真实同步、真实微信/企业微信安装目录、UAC桌面提示、VSS空间变化、外置盘突然断开；ARM64 桌面应用兼容性同样不在覆盖内。
 
 现有预览入口还有白屏缺陷，不能用页面服务端渲染测试替代真实交互验收。修复产品缺陷后，可再增加浏览器交互与截图阶段；需要实际桌面/应用账号的部分仍应独立标记覆盖范围。

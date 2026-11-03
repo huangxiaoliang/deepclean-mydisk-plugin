@@ -344,6 +344,19 @@ test('windows large files show modification age instead of unknown', () => {
   assert.ok(!zh.includes('修改时间未知'))
 })
 
+// 页面 fixture 长期固定 platform:'darwin'，Windows 的「隔离区 / quarantine」文案
+// 只有 aiReportDigest 单测覆盖，从未真正渲染过。这里用 win32 overview 渲染首页。
+test('windows overview renders the quarantine term, not the trash term', () => {
+  const mutate = cases.find(([n]) => n === 'home')[1]
+  const overview = { ...mockOverview, platform: 'win32' }
+  const zh = renderWithData(mutate, 'zh', overview)
+  assert.ok(zh.includes('隔离区'), 'Windows copy must say 隔离区')
+  assert.ok(!zh.includes('废纸篓'), 'Windows copy must not say 废纸篓')
+  const en = renderWithData(mutate, 'en', overview)
+  assert.match(en, /quarantine/, 'English Windows copy must say quarantine')
+  assert.doesNotMatch(en, /Trash/, 'English Windows copy must not say Trash')
+})
+
 test('photos page handles Windows path separators', () => {
   const mutate = cases.find(([n]) => n === 'clean-photos')[1]
   const winPhotos = { scanned: 4, compared: 4, elapsed: 1, groups: [
