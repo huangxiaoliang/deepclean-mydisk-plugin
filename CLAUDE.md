@@ -11,6 +11,7 @@
 - 改代码前：`AGENTS.md` 的「结构」「常见陷阱」「已知缺口」三节。
 - 改界面：`README.md`「界面结构」+ `docs/design/README.md` + `design-qa.md`（视觉验收只覆盖浅色首页、清理页与英文窄窗口）。
 - 改扫描器：`resources/scripts/deepclean.py`（统一入口）、`scan.py`（macOS）、`platforms/windows.py`（Windows）。
+- 改 AI 入口：`AGENTS.md`「AI 辅助清理」+ `docs/llm-opportunities.md`，重点看提示词安全与「读不到模型回复」的单向投递约束。
 
 ## 验证闭环（每次改动后按顺序执行）
 
@@ -25,7 +26,7 @@ python3 tests/tree-regressions.py                     # 动了 tree.py 才需要
 ```
 
 - 只改 `.md` 不用跑测试。
-- macOS 上 `npm test` 是 **151 用例 / 149 pass / 2 skip**；2 个 skip 是 Windows 专用 HTTP 用例（`tests/host.test.mjs` 里 `skip: process.platform !== 'win32'`），属于预期，不要删改断言来「修绿」。
+- macOS 上 `npm test` 是 **177 用例 / 175 pass / 2 skip**；2 个 skip 是 Windows 专用 HTTP 用例（`tests/host.test.mjs` 里 `skip: process.platform !== 'win32'`），属于预期，不要删改断言来「修绿」；Windows 上会再跳过 6 个 macOS / 符号链接专用用例（171 pass / 6 skip）。
 - 改 `lib/client.js` 的界面后，用 `node scripts/preview.mjs`（127.0.0.1:4173，宿主 API 全 mock、路径虚构在 `/demo`）人工确认；预览不碰真实磁盘。
 - 提交前 `git diff` 自查：不能包含 `report.md` / `report.json` / `acceptance-report/` / `__pycache__` 等产物。
 
@@ -47,7 +48,15 @@ python3 tests/tree-regressions.py                     # 动了 tree.py 才需要
 - 新增静态资源 = 同步新增宿主固定路由（参考 `/dsh-deepclean/assets/disk.png`），不要暴露任意文件路径。
 - 改 `lib/index.js` / `lib/client.js` 后必须提醒用户**重启 DSH**（`link:` 挂载，宿主进程内加载）。
 - 扫描器是内置副本：`scripts/sync-scanner.sh <skill-repo>` 只同步 `scan.py` / `deepclean.py` / `platforms/` / `rules.json`；`photos.py` / `tree.py` / `photos-windows.ps1` 是插件独有，不要覆盖。
-- 报告字段是扫描器 → 宿主 → 客户端的三方契约：改 `leftoverGroups` / `caches` / `devCaches` / `browsers` / `special` 要同时改 `platforms/windows.py`、`lib/index.js` 的 `allowedPaths`、`lib/client.js` 和 `tests/`。
+- 报告字段是扫描器 → 宿主 → 客户端的三方契约：改 `leftoverGroups` / `caches` / `devCaches` / `browsers` / `appCaches` / `special` 要同时改 `platforms/windows.py`、`lib/index.js` 的 `allowedPaths`、`lib/client.js` 和 `tests/`；`special` 目前仅 macOS 产出，Windows 的 `appCaches` 仍为空数组。
+
+## AI 辅助（只读）改动约定
+
+- AI 入口全部在 `lib/client.js`（`aiReportPrompt` / `aiItemPrompt` / `aiReviewPrompt` / `aiInspectPrompt` / `aiFailurePrompt` / `aiHistoryPrompt`）；数据只来自面板已算好的报告、行集合与历史，宿主侧只读工具 `disk_report` / `disk_inspect` 读取同一份内存报告。
+- 提示词必须复用 `untrustedText`（NFKC、去控制字符/换行/定向符、围栏防伪）与 `safeDisplayPath`（默认不发完整绝对路径）；中英文 `aiRules` 成对修改。
+- 不得给模型新增写工具、自动勾选或自动执行；模型输出不得进入 `allowedPaths` / `isProtected` / 新鲜度判断。当前实现读不到模型回复（`session.prompt` 只消费 `ok`），不要假设有结构化返回通道。
+- `disk_audit` 的工具体检报告只存 `toolReport`，只供 `disk_inspect`；`disk_report` 只读面板最近报告、不重扫。
+- 改 AI 文案或提示词后跑 `npm test`，并用 `node scripts/preview.mjs` 检查入口、降级复制提示词与「AI 证据」预览；用户可见的能力变化要同步 `README.md` 和 `docs/plugin/DETAIL.zh.md` / `DETAIL.en.md`。
 
 ## Claude Code 工作约定
 

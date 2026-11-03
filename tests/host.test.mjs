@@ -7,10 +7,10 @@ import path from 'node:path'
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dc-host-test-')))
 process.env.HOME = root
 process.env.USERPROFILE = root
-process.env.LOCALAPPDATA = path.join(root, 'AppData', 'Local')
-process.env.APPDATA = path.join(root, 'AppData', 'Roaming')
 process.env.DSH_HOME = path.join(root, 'dsh')
 process.env.DEEPCLEAN_TRASH_DIR = path.join(root, 'trash')
+process.env.LOCALAPPDATA = path.join(root, 'AppData', 'Local')
+process.env.APPDATA = path.join(root, 'AppData', 'Roaming')
 
 const plugin = await import('../lib/index.js')
 
@@ -443,9 +443,12 @@ test('purge permanently deletes a batch moved into the quarantine trash', async 
 })
 
 
-test('host registers the read-only inspection tool', () => {
+test('host registers the read-only inspection tools', () => {
   const names = tools.map((t) => t.name).sort()
-  assert.deepEqual(names, ['disk_audit', 'disk_check_permissions', 'disk_inspect', 'disk_self_test'])
+  assert.deepEqual(names, ['disk_audit', 'disk_check_permissions', 'disk_inspect', 'disk_report', 'disk_self_test'])
+  const audit = tools.find((t) => t.name === 'disk_audit')
+  assert.equal(audit.parameters.properties.json, undefined, 'disk_audit must not expose the raw JSON switch')
+  assert.deepEqual(tools.find((t) => t.name === 'disk_report').parameters.properties, {})
 })
 
 test('disk_inspect reports path facts without touching files', async () => {
@@ -456,28 +459,177 @@ test('disk_inspect reports path facts without touching files', async () => {
   const file = path.join(folder, 'blob.bin')
   fs.writeFileSync(file, Buffer.alloc(4096, 7))
   try {
-    const tool = tools.find((t) => t.name === 'disk_inspect')
-    const text = await tool.execute({ path: folder })
+    // 只读工具只接受「最近一次体检报告覆盖的路径」；测试直接注入一份合成报告（不启动扫描）。
+    const fakeReport = {
+      home: root,
+      platform: process.platform === 'win32' ? 'windows' : 'macos',
+      leftoverGroups: [
+        { baseId: 'inspect-fixture', name: 'inspect-fixture', bucket: 'confirm', kb: 4, paths: [folder], why: '测试条目' },
+        { baseId: 'inspect-missing', name: 'inspect-missing', bucket: 'confirm', kb: 0, paths: [path.join(root, 'inspect-missing')], why: '不存在的测试条目' },
+      ],
+      appCaches: [], devCaches: [], browsers: [], caches: [], special: [],
+      bigFiles: [],
+    }
+    const inspected = plugin.inspectPath({ path: folder }, fakeReport)
+    const text = plugin.renderInspect(inspected)
     assert.match(text, /只读路径检查/)
     assert.match(text, /类型：目录/)
     assert.match(text, /blob\.bin 4 KB/)
     assert.match(text, /未修改、未移动任何文件/)
+    assert.equal(inspected.display, '~/…/inspect-fixture', 'display path must be redacted')
+    const byItem = plugin.inspectPath({ itemId: 'leftover:0' }, fakeReport)
+    assert.equal(byItem.exists, true)
+    assert.equal(byItem.itemId, 'leftover:0')
+    assert.equal(byItem.display, inspected.display)
+    const itemText = plugin.renderInspect(byItem)
+    assert.match(itemText, /条目 id：leftover:0/)
+    const missing = plugin.inspectPath({ path: path.join(root, 'inspect-missing') }, fakeReport)
+    assert.match(missing.error, /路径不存在/)
+    const outside = plugin.inspectPath({ path: path.join(root, 'not-in-report') }, fakeReport)
+    assert.match(outside.error, /不在最近一次体检报告范围内/)
     assert.equal(fs.existsSync(file), true, 'inspection must not move or delete files')
-    const missing = await tool.execute({ path: path.join(root, 'inspect-missing') })
-    assert.match(missing, /路径不存在/)
-    const empty = await tool.execute({})
-    assert.match(empty, /需要绝对路径/)
     if (process.platform !== 'win32') {
       const link = path.join(root, 'inspect-link')
       fs.symlinkSync(folder, link)
-      const sym = await tool.execute({ path: link })
-      assert.match(sym, /符号链接（未跟随）/)
+      const sym = plugin.inspectPath({ path: link }, { ...fakeReport, leftoverGroups: [{ baseId: 'link', name: 'link', bucket: 'confirm', kb: 0, paths: [link], why: '测试链接' }] })
+      assert.equal(sym.type, 'symlink')
       assert.equal(fs.existsSync(folder), true)
     }
+    // 工具入口在无报告时必须 fail-closed，而不是去 readdir 任意目录。
+    const tool = tools.find((t) => t.name === 'disk_inspect')
+    const rejected = await tool.execute({ path: folder })
+    assert.match(rejected, /不在最近一次体检报告范围内|未找到该条目/)
+    const empty = await tool.execute({})
+    assert.match(empty, /需要 itemId 或绝对路径/)
+    assert.match(text, /报告来源：面板体检/)
+    assert.match(text, /状态：新鲜/)
+    assert.match(text, /该路径是否在清理允许集合内（程序判定，不是清理建议）：否/)
+    const grouped = plugin.inspectPath({ itemId: 'leftover:0' }, {
+      ...fakeReport,
+      leftoverGroups: [{ ...fakeReport.leftoverGroups[0], paths: [folder, path.join(root, 'group-second')] }],
+    })
+    assert.equal(grouped.multiPath, true)
+    assert.match(plugin.renderInspect(grouped), /只检查了第一个/)
   } finally {
     if (home === undefined) delete process.env.HOME
     else process.env.HOME = home
   }
+})
+
+test('sanitizeAuditMarkdown strips the scanner suggestion-command section', () => {
+  const mac = '# 报告\n\n## 九、预计可释放\n\n- 合计 1 GB\n\n## 十、建议命令（只生成，不执行）\n\n```bash\nmv -n "/x" ~/.Trash/\n```\n'
+  const macOut = plugin.sanitizeAuditMarkdown(mac)
+  assert.match(macOut, /预计可释放/)
+  assert.equal(macOut.includes('建议命令'), false)
+  assert.equal(macOut.includes('mv -n'), false)
+  const win = '# 报告\n\n## 十、建议命令（PowerShell，只生成，不执行）\n\n```powershell\nMove-Item -LiteralPath \'C:\\x\' -Destination $q\n```\n'
+  assert.equal(plugin.sanitizeAuditMarkdown(win).includes('Move-Item'), false)
+  assert.equal(plugin.sanitizeAuditMarkdown('没有命令节\n\n'), '没有命令节')
+})
+
+test('auditHints maps report rows to inspectable itemIds', () => {
+  const report = {
+    leftoverGroups: [
+      { baseId: 'x', name: 'X\nApp', bucket: 'confirm', kb: 10, paths: ['/x/a'] },
+      { baseId: 'y', name: 'Y', bucket: 'confirm', kb: 10, paths: ['/y/a'] },
+    ],
+    appCaches: [{ baseId: 'a', app: 'A', kb: 1, paths: ['/a/cache'] }],
+    devCaches: [{ path: '/d/.npm', kb: 1 }],
+    browsers: [{ name: 'Chrome', path: '/b', kb: 1 }],
+    special: [{ app: '微信', categories: [{ name: '缓存', paths: ['/s'] }] }],
+    caches: [{ path: '/c', kb: 1 }],
+    bigFiles: [{ path: '/big/file.bin', kb: 1 }],
+  }
+  const hints = plugin.auditHints(report)
+  assert.ok(hints.includes('- leftover:0 · X App'), hints.join('\n'))
+  assert.ok(hints.includes('- leftover:1 · Y'))
+  assert.ok(hints.includes('- appCaches:0 · A'))
+  assert.ok(hints.includes('- devCaches:0 · .npm'))
+  assert.ok(hints.includes('- browsers:0 · Chrome'))
+  assert.ok(hints.includes('- special:0:0 · 微信 缓存'))
+  assert.ok(hints.includes('- caches:0 · c'))
+  assert.ok(hints.includes('- bigFiles:0 · file.bin'))
+  assert.deepEqual(plugin.auditHints(null), [])
+  const many = plugin.auditHints({ leftoverGroups: Array.from({ length: 40 }, (_, i) => ({ baseId: `g${i}`, bucket: 'confirm', kb: 1, paths: [`/g${i}`] })) })
+  assert.equal(many.length, 30)
+})
+
+test('renderReportSummary describes the panel report with four tiers and ids', () => {
+  const report = {
+    platform: 'macos',
+    generatedAt: '2026-01-01 10:00:00',
+    fda: { status: 'granted', detail: 'ok' },
+    disk: { total: 100 * 1024 ** 3, used: 60 * 1024 ** 3, free: 40 * 1024 ** 3 },
+    trashKb: 2048,
+    estimate: { safeKb: 2048, cacheKb: 1024, devKb: 512, confirmKb: 4096, totalKb: 3584 },
+    leftoverGroups: [
+      { baseId: 'x', name: 'X', bucket: 'safe', kb: 2048, paths: ['/safe/x'] },
+      { baseId: 'y', name: 'Y', bucket: 'confirm', kb: 4096, paths: ['/confirm/y'] },
+    ],
+    appCaches: [{ baseId: 'a', app: 'A', kb: 100, paths: ['/app/a'], cleanable: true }],
+    devCaches: [], browsers: [], special: [], caches: [],
+    bigFiles: [{ path: '/big/file.bin', kb: 300 * 1024, mtime: Date.now() - 2 * 86400000 }],
+  }
+  const text = plugin.renderReportSummary(report, Date.now() - 11 * 60 * 1000)
+  assert.match(text, /已过期/)
+  assert.match(text, /itemId/)
+  assert.match(text, /推荐清理/)
+  assert.match(text, /可选清理/)
+  assert.match(text, /需确认/)
+  assert.match(text, /受保护/)
+  assert.match(text, /recommended/)
+  assert.match(text, /protected/)
+  assert.match(text, /leftover:0/)
+  assert.match(text, /bigFiles:0/)
+  assert.match(text, /不触发新扫描/)
+  const fresh = plugin.renderReportSummary(report, Date.now())
+  assert.match(fresh, /状态：新鲜/)
+  assert.equal(plugin.renderReportSummary({}, Date.now()).includes('（无）'), true)
+})
+
+test('inspectAllowance only trusts a fresh panel report', () => {
+  const report = {
+    leftoverGroups: [{ baseId: 'c', name: 'c', bucket: 'confirm', kb: 10, paths: ['/tmp/dc-allow/confirm'] }],
+    caches: [{ path: '/tmp/dc-allow/cache', kb: 10 }],
+    devCaches: [], browsers: [], appCaches: [], special: [], bigFiles: [],
+  }
+  assert.equal(plugin.inspectAllowance({ source: 'panel', stale: false, report, abs: '/tmp/dc-allow/cache' }), true)
+  assert.equal(plugin.inspectAllowance({ source: 'tool', stale: false, report, abs: '/tmp/dc-allow/cache' }), false, 'toolReport must never allow cleaning')
+  assert.equal(plugin.inspectAllowance({ source: 'panel', stale: true, report, abs: '/tmp/dc-allow/cache' }), false, 'stale reports must not allow cleaning')
+  assert.equal(plugin.inspectAllowance({ source: 'panel', stale: false, report, abs: '/tmp/dc-allow/confirm' }), false, 'needs-review tier is never in the allow-set')
+  assert.equal(plugin.inspectAllowance({}), false)
+})
+
+test('normalizeToolReport expands redacted home paths before inspection', () => {
+  const home = os.homedir()
+  const report = plugin.normalizeToolReport({
+    home: '~',
+    leftoverGroups: [{ baseId: 'x', kb: 1, paths: ['~/Library/Containers/x'] }],
+    appCaches: [{ baseId: 'a', paths: ['~/Library/Caches/a'] }],
+    devCaches: [{ path: '~/.npm' }],
+    browsers: [{ name: 'Chrome', path: '~/Library/Caches/Google/Chrome' }],
+    caches: [{ path: '~/Library/Caches/c' }],
+    special: [{ app: '微信', categories: [{ paths: ['~/Library/Containers/wechat'] }] }],
+    bigFiles: [{ path: '~/big.bin' }],
+    cloudStorage: [{ path: '~/Library/CloudStorage/iCloud' }],
+  })
+  assert.equal(report.home, home)
+  assert.equal(report.leftoverGroups[0].paths[0], path.join(home, 'Library/Containers/x'))
+  assert.equal(report.appCaches[0].paths[0], path.join(home, 'Library/Caches/a'))
+  assert.equal(report.devCaches[0].path, path.join(home, '.npm'))
+  assert.equal(report.browsers[0].path, path.join(home, 'Library/Caches/Google/Chrome'))
+  assert.equal(report.caches[0].path, path.join(home, 'Library/Caches/c'))
+  assert.equal(report.special[0].categories[0].paths[0], path.join(home, 'Library/Containers/wechat'))
+  assert.equal(report.bigFiles[0].path, path.join(home, 'big.bin'))
+  assert.equal(report.cloudStorage[0].path, path.join(home, 'Library/CloudStorage/iCloud'))
+  // 未脱敏的绝对路径原样保留。
+  assert.equal(plugin.normalizeToolReport({ caches: [{ path: '/abs/c' }] }).caches[0].path, '/abs/c')
+})
+
+test('disk_report returns a hint instead of scanning when the panel has no report', async () => {
+  const tool = tools.find((t) => t.name === 'disk_report')
+  const text = await tool.execute({})
+  assert.match(text, /暂无面板体检报告/)
 })
 
 test('cleanAnnotations records report sizes but never widens the allow-set', () => {

@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "DeepClean MyDisk",
+    "description": "Read-only disk audit and cleanup that moves selected files to the Trash or quarantine, with undo.",
+    "detail": "docs/plugin/DETAIL.en.md"
+  }
+}

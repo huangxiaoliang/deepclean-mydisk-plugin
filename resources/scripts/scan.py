@@ -99,6 +99,20 @@ def human(kb):
     return f"{n:.1f}T"
 
 
+# 文件名/路径可能带换行或控制字符；先单行化再放进 Markdown 表格，
+# 避免伪造额外表格行或截断渲染（只影响展示，不影响扫描/分档）。
+_CELL_CTRL = re.compile(r"[\x00-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2060\ufeff]")
+
+
+def one_line_cell(value, max_len=200):
+    s = "" if value is None else str(value)
+    s = _CELL_CTRL.sub(" ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    if max_len and len(s) > max_len:
+        s = s[: max_len - 1] + "…"
+    return s
+
+
 def plist_raw(path, key):
     if not os.path.exists(path):
         return None
@@ -783,7 +797,9 @@ def render_md(r, args):
         a("| 大小 | 位置 | 说明 |")
         a("|---|---|---|")
         for it in rows:
-            a(f"| {human(it.get('kb'))} | `{it.get('path','')}` | {it.get('note','')} |")
+            path_cell = one_line_cell(it.get("path", ""))
+            note_cell = one_line_cell(it.get("note", ""))
+            a(f"| {human(it.get('kb'))} | `{path_cell}` | {note_cell} |")
         a("")
 
     gl = r["leftoverGroups"]
