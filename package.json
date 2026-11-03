@@ -23,6 +23,8 @@
     "resources",
     "cordis.patch.yml",
     "README.md",
+    "SUPPORT.md",
+    "SECURITY.md",
     "LICENSE",
     "locale/*.json",
     "docs/plugin",

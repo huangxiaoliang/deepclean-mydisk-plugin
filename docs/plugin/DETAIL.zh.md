@@ -48,6 +48,13 @@ dsh plugin add deepclean-mydisk
 
 命名 profile 用 `--profile <name>`。这里装的是已发布的 npm 包（预构建，无构建步骤）；想从源码仓库安装可用 `dsh plugin add github:huangxiaoliang/deepclean-mydisk-plugin`。安装或更新后需要重启 DSH。
 
+## 反馈与支持
+
+- 遇到 Bug 或有使用问题，请开 GitHub Issue：https://github.com/huangxiaoliang/deepclean-mydisk-plugin/issues/new/choose
+- 安全问题（越权删除、路径逃逸、恢复失败、隐私泄露等）请勿公开，发邮件到 **coolway.me@gmail.com**，说明版本、复现与影响。
+- 提交前请先重启 DSH，并附上插件版本、DSH 版本、系统版本、错误码/失败阶段与已脱敏的日志或截图；审计日志在 `$DSH_HOME/deepclean-audit.log`。
+- 不要贴完整磁盘路径、用户名、文件名或聊天记录；详见仓库的 [SUPPORT.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/SUPPORT.md) 与 [SECURITY.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/SECURITY.md)。
+
 ## 已知限制
 
 - Windows 的 `appCaches` 扫描尚未实现；聊天软件专项分类仅 macOS 提供。
