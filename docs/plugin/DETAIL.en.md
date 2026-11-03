@@ -48,6 +48,13 @@ dsh plugin add deepclean-mydisk
 
 Add `--profile <name>` for a named profile. This installs the published npm package (prebuilt, no build step); to install from the source repository instead, use `dsh plugin add github:huangxiaoliang/deepclean-mydisk-plugin`. Restart DSH after installing or updating.
 
+## Feedback and support
+
+- Bugs and usage questions: open a GitHub issue at https://github.com/huangxiaoliang/deepclean-mydisk-plugin/issues/new/choose
+- Security issues (deleting outside the allow-set, path escapes, failed restores, privacy leaks): do not open a public issue; email **coolway.me@gmail.com** with the version, reproduction and impact.
+- Before filing, restart DSH and include the plugin version, DSH version, OS, error code or failing stage, and redacted logs or screenshots. The audit log lives at `$DSH_HOME/deepclean-audit.log`.
+- Never paste full disk paths, user names, file names or chat content; see [SUPPORT.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/SUPPORT.md) and [SECURITY.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/SECURITY.md).
+
 ## Limits
 
 - Windows `appCaches` scanning is not implemented, and chat-app cache classification is macOS-only.

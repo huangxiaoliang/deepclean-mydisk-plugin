@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 使用与安装文档 / README
+    url: https://github.com/huangxiaoliang/deepclean-mydisk-plugin#readme
+    about: 安装、权限、平台支持与常见问题
+  - name: Windows 验收与已知限制
+    url: https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/docs/windows-acceptance.md
+    about: Windows 扫描、隔离区、手工验收清单
+  - name: 安全问题（私下联系）
+    url: https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/SECURITY.md
+    about: 越权删除、路径逃逸、恢复失败、隐私泄露等安全问题请勿公开提 Issue，按 SECURITY.md 发邮件

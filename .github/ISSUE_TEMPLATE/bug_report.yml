@@ -1,0 +1,111 @@
+name: Bug report（问题反馈）
+description: 扫描、清理、恢复、照片或搬家功能出错时提交
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。提交前请确认：
+
+        - 已重启 DSH（插件升级或修改后必须重启）；
+        - 已运行 `python3 resources/scripts/deepclean.py --self-test` 与 `--check-permissions`；
+        - 日志和截图已脱敏：不要贴完整路径、用户名、文件名或聊天记录。
+
+        **安全类问题**（越权删除、路径逃逸、恢复失败、隐私泄露等）不要公开提 Issue，
+        请按 [SECURITY.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/SECURITY.md)
+        通过邮件私下联系。
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: 插件版本
+      description: 设置页可见，或运行 `dsh plugin list` 查看
+      placeholder: 0.12.0
+    validations:
+      required: true
+
+  - type: input
+    id: dsh-version
+    attributes:
+      label: DSH 版本
+      placeholder: 0.2.1-rc.5
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: 操作系统
+      options:
+        - macOS 15 (Sequoia)
+        - macOS 14 (Sonoma)
+        - macOS 13 (Ventura)
+        - Windows 11
+        - Windows 10
+        - 其他（请在正文说明）
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 出问题的功能
+      options:
+        - 体检 / 扫描
+        - 垃圾清理
+        - 恢复 / 撤销
+        - 永久删除（隔离区 / 废纸篓）
+        - 相似照片
+        - 空间分析
+        - 跨盘搬家
+        - AI 解释
+        - 安装 / 启动 / 侧边栏
+        - 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 尽量给出最小步骤；路径请用 `~/…` 或 `%LOCALAPPDATA%\…` 这类脱敏写法
+      placeholder: |
+        1. 打开面板 → 体检 → 完整扫描
+        2. 勾选「用户临时文件」并清理
+        3. 打开历史 → 恢复该批次
+        4. 出现错误码……
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果 vs 实际结果
+    validations:
+      required: true
+
+  - type: input
+    id: error
+    attributes:
+      label: 错误码 / 失败阶段（可选）
+      description: UI 上显示的 code（如 eacces / exdev / notfound / symlink）或日志中的阶段名
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / 截图（可选，务必脱敏）
+      description: 审计日志在 $DSH_HOME/deepclean-audit.log；报告可用 `--redact` 重新生成。不要贴完整路径、用户名、文件名或聊天内容
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已重启 DSH 后仍然复现
+          required: true
+        - label: 我已移除日志和截图中的完整路径、用户名等隐私信息
+          required: true
+        - label: 这不是安全问题（安全问题请按 SECURITY.md 私下联系）
+          required: true
