@@ -1,11 +1,18 @@
 # deepclean-mydisk 插件变更
 
+## 0.12.1 — 2026-11-03
+- 修复（Windows 报告/隐私）：`--redact` 改为先脱敏 home 路径再生成 PowerShell 命令，并按 PowerShell 规则转义 `'`（含 `O'Brien` 这类用户名），home 路径与用户名不再泄漏到报告或模型上下文；生成的 `Move-Item` 命令同样转义
+- 修复（扫描器）：`--redact` 不再对全文替换主机名（主机名是常见子串时，如 `h`，会打碎正文）；非 Windows 宿主执行 `--platform windows` 改为显式退出 2，并提示跨平台合成扫描入口 `scripts/windows-ci/scanner.py`
+- Windows 验收：矩阵新增 `windows-11-arm`（Windows 11 Arm64 客户端镜像）；客户端镜像拿不到测试卷时显式 SKIP 跨卷用例并写入 `summary.md` / `results.json`，两个 Server job 仍必须提供测试卷；2022 / 2025 / Arm64 三个镜像全部通过（Arm64 的 6 个原生用例全跑）
+- 文档重构：README 精简为用户向内容；开发环境、目录结构、常用命令、测试与 CI、HTTP API、扫描器同步、发布流程迁入新增 `CONTRIBUTING.md`；新增 `SUPPORT.md` / `SECURITY.md`、Issue 表单与 `config.yml`；`docs/plugin/DETAIL.zh.md` / `DETAIL.en.md` 增加「反馈与支持」节，并修正 DSH 版本范围与 Windows 验收表述
+- 打包：npm 包纳入 `SUPPORT.md` / `SECURITY.md`（`npm pack` 28 个文件）
+- 测试 181（macOS 179 pass / 2 skip；Windows 174 pass / 7 skip），新增 Windows 隔离区归属、云盘 / OneDrive 根保护、PowerShell 引号与脱敏、缓存规格等回归
+
 ## 0.12.0 — 2026-11-03
 - 模型工具：4 个工具描述改为英文并补齐使用边界；新增只读 `disk_report`（读面板最近报告，不重扫）；`disk_audit` 删除 `json` 参数、默认脱敏、输出去掉「建议命令」节并附 `itemId`；`disk_inspect` 标注报告来源/过期/组首路径；扫描器表格单元格单行化防注入
 - `disk_audit` 的工具体检报告单独保存为 `toolReport`，只供 `disk_inspect`，绝不进入清理允许集合
 - AI 提示词：去掉「删除/搬家」措辞，补「无写权限/报告过期/无 disk_inspect」规则，报告与复核行补 `itemId`，围栏防伪，平台术语按平台选词
 - 市场元数据：`locale/en.json` / `locale/zh.json`、180×180 图标、`docs/plugin/DETAIL.en.md` / `DETAIL.zh.md`、`screenshots.json`、`docs/market/awesome-entry.yml`；`package.json` 升 0.12.0，补 `engines.dsh` 并放宽 peer 范围
-- 测试 177（macOS 175 pass / 2 skip）
 - P1 安全修复：Windows 浏览器扫描初始化进程快照；运行中缓存的父/子路径统一拒绝清理；普通 AppData / Application Support 数据目录仅统计、不允许移动
 - P1 恢复与释放修复：逐级拒绝恢复目标祖先链接；所有待恢复批次保留历史入口，完整索引用于恢复/释放；审计轮转保留活跃批次恢复依据；清理完成页永久删除新增第二次确认，分片批次一并处理
 - **未知残留 / 长尾解释增强**：提示词新增只读证据包（容器归属、bundle id、是否已安装、运行状态、扫描完整性、报告时间等，全部来自已算好的报告，零额外读盘）；清理页展开详情新增「AI 证据」预览（显示「AI 会看到哪些脱敏证据」）；未收录应用残留的按钮改为「解释这一项」
