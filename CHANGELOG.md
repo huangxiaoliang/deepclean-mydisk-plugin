@@ -1,13 +1,23 @@
 # deepclean-mydisk 插件变更
 
-## 未发布
+## 0.12.0 — 2026-11-03
+- 模型工具：4 个工具描述改为英文并补齐使用边界；新增只读 `disk_report`（读面板最近报告，不重扫）；`disk_audit` 删除 `json` 参数、默认脱敏、输出去掉「建议命令」节并附 `itemId`；`disk_inspect` 标注报告来源/过期/组首路径；扫描器表格单元格单行化防注入
+- `disk_audit` 的工具体检报告单独保存为 `toolReport`，只供 `disk_inspect`，绝不进入清理允许集合
+- AI 提示词：去掉「删除/搬家」措辞，补「无写权限/报告过期/无 disk_inspect」规则，报告与复核行补 `itemId`，围栏防伪，平台术语按平台选词
+- 市场元数据：`locale/en.json` / `locale/zh.json`、180×180 图标、`docs/plugin/DETAIL.en.md` / `DETAIL.zh.md`、`screenshots.json`、`docs/market/awesome-entry.yml`；`package.json` 升 0.12.0，补 `engines.dsh` 并放宽 peer 范围
+- 测试 177（macOS 175 pass / 2 skip）
+- P1 安全修复：Windows 浏览器扫描初始化进程快照；运行中缓存的父/子路径统一拒绝清理；普通 AppData / Application Support 数据目录仅统计、不允许移动
+- P1 恢复与释放修复：逐级拒绝恢复目标祖先链接；所有待恢复批次保留历史入口，完整索引用于恢复/释放；审计轮转保留活跃批次恢复依据；清理完成页永久删除新增第二次确认，分片批次一并处理
+- **未知残留 / 长尾解释增强**：提示词新增只读证据包（容器归属、bundle id、是否已安装、运行状态、扫描完整性、报告时间等，全部来自已算好的报告，零额外读盘）；清理页展开详情新增「AI 证据」预览（显示「AI 会看到哪些脱敏证据」）；未收录应用残留的按钮改为「解释这一项」
+- **失败 / 降级诊断**：清理/恢复/撤销有失败项或审计写失败时出现「AI 解释这次失败」；macOS 未授权时权限卡新增「问 AI 为什么扫不到」；扫描失败/被时间预算截断时新增「AI 解释这次失败 / 为什么结果不完整」；提示词只带错误码、计数与脱敏原因，不重新执行任何操作
+- **AI 输入安全与隐私**：提示词中的文件名/目录名/App 显示名按不可信数据处理（NFKC、去控制字符/换行/定向符、单行化、截断、数据边界围栏）；完整绝对路径默认不发送（`~ + 顶层目录 + … + basename`）；`disk_inspect` 改为 `itemId` 解析 + 报告外路径 fail-closed，输出路径脱敏、`top` 文件名单行化、`bundleId` 白名单校验后再查 Spotlight
 - AI 只读解释入口：首页「让 AI 解读这次体检」、清理页逐项「问 AI」、清理前「复核这 n 项」、历史「让 AI 分析趋势」、大文件「这是什么」（客户端拼接提示词注入当前会话，可降级为复制提示词）
 - 新增只读模型工具 `disk_inspect`（类型/大小/文件数/修改时间/报告分档/对应 App 是否安装），并给未收录的应用残留加「未收录」标记
 - 历史页新增「趋势与复清」：可用空间趋势、累计清理量、清了又长回来的条目；清理审计新增 `moved[].kb/category` 标注（旧日志无此字段，仅用于展示、不参与放行）
 - AI 提示词口径修正：补「按分类合计」「各档合计与未列出条目汇总」「范围说明（报告不等于整盘占用）」，去掉与条目风险档冲突的 `estimate.safeKb` 措辞，并禁止把扫描器 advice 里的命令文本带进提示词
 - 已卸载残留细粒度拆分：`scan.py` / `platforms/windows.py` 在 confirm 残留容器里识别可再生缓存子目录（Caches/tmp/Code Cache/GPUCache 等，深度 ≤4、不跟随链接），拆成独立 safe 组（`cachePart: true`，客户端显示「App · 缓存」），原组保持 confirm 并扣减大小；聊天类 / 系统 App / 运行中的残留不拆，小于 1 MB 不单列
 - 开发缓存影响文案细分：pnpm store 与 npm 一样标注「安装依赖时可能重新下载」；electron-builder / node-gyp / next-swc / CocoaPods / SwiftPM / DeviceSupport 各自标注重新下载时机；条目级「问 AI」可调用只读 `disk_inspect` 补充文件数/修改时间
-- 测试 123（121 pass / 2 skip）
+- 测试 177（macOS 175 pass / 2 skip）
 
 ## 0.11.0
 - 在用 App 缓存清理：扫描器新增 `appCaches`（仅 Caches/tmp/Code Cache/GPUCache 等可再生目录，跳过聊天容器与个人目录，运行中 App 不进入允许集合）；清理页新增「应用缓存」分类，向导推荐项包含可清理的 App 缓存

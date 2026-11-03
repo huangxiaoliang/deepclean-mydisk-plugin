@@ -1,15 +1,32 @@
 {
   "name": "deepclean-mydisk",
-  "version": "0.11.0",
-  "private": true,
-  "description": "DeepClean MyDisk —— DSH 插件：只读磁盘体检 + 空间可视化 + 相似照片 + 微信/企微专清 + 跨盘搬家 + 可撤销清理。",
+  "version": "0.12.0",
+  "description": "Read-only disk audit and cleanup for macOS and Windows: caches, leftovers, similar photos, space breakdown, and cross-disk file moves.",
+  "author": "huangxiaoliang",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "disk",
+    "storage",
+    "cleanup",
+    "macos",
+    "windows"
+  ],
+  "icon": "./assets/icon-180.png",
   "type": "module",
   "main": "lib/index.js",
+  "engines": {
+    "dsh": ">=0.2.1-rc.5 <0.3.0-0"
+  },
   "files": [
     "lib",
     "resources",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "LICENSE",
+    "locale/*.json",
+    "docs/plugin",
+    "assets/icon-180.png"
   ],
   "dsh": {
     "bundle": {
@@ -20,7 +37,7 @@
     }
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-tools": "0.2.1-rc.5"
+    "@deepseek-ai/dsh-tools": ">=0.2.1-rc.5 <0.3.0-0"
   },
   "license": "MIT",
   "devDependencies": {
@@ -35,7 +52,8 @@
     "./client": {
       "default": "./lib/client.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
   },
   "scripts": {
     "test": "node --test"

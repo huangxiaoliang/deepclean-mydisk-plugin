@@ -1,0 +1,58 @@
+# DeepClean MyDisk
+
+DeepClean MyDisk is a DSH plugin for macOS and Windows that audits disk usage without changing anything, then moves the files you select to the Trash or a quarantine folder with undo. It adds a native sidebar panel with five sections: Checkup, Cleanup, Space, History, and Settings.
+
+![Checkup home screen](shot-home.jpg)
+
+## What it does
+
+**Checkup.** The home screen shows live capacity before the first scan. Quick and full scans report recommended, optional, needs-review, and protected tiers with an estimated reclaimable total and a per-item explanation.
+
+**Cleanup.** Seven content categories cover developer, browser, app, chat, system, and other caches, plus uninstalled-app leftovers. Regenerable caches inside uninstalled apps are split out; the rest stays in needs review. Search, sorting, and risk filters are available; chat-app classification is macOS-only.
+
+![Cleanup screen](shot-clean.jpg)
+
+**Space.** A directory breakdown with a ring chart, breadcrumbs, and drill-down covers the home directory, and a large-file view supports size and age filters.
+
+**Similar photos.** dHash fingerprinting groups similar photos across Pictures, Downloads, Desktop, and Documents, up to 600 photos of at least 200 KB. Keep-largest, keep-newest, and keep-shallowest strategies are available.
+
+**Cross-disk moves.** Large files can be copied to another volume and verified with SHA-256 and size before the source is removed. Space is pre-checked and progress can be cancelled.
+
+![Move screen](shot-move.jpg)
+
+**History and restore.** Scan history, cleanup batches, a free-space trend, and quarantine occupancy live in one place. Batches can be restored across restarts while the audit log has them.
+
+**Read-only model tools.** Five tools are exposed: `disk_check_permissions`, `disk_audit`, `disk_report`, `disk_inspect`, and `disk_self_test`. `disk_audit` starts a scan; `disk_report` reads the latest panel report without scanning; `disk_inspect` checks one item by `itemId` or a covered path. None can clean, move, or delete.
+
+**Read-only AI assistance.** You can ask AI to explain a checkup, explain one cleanup item, review a selection before cleanup, identify a large file, diagnose a failure, or analyze history trends. The AI explains only; it cannot select, clean, move, or delete anything. Prompts contain only redacted data the panel already computed, and model output cannot change risk tiers or the allow-set.
+
+## Safety model
+
+Scans are read-only. Cleanup only moves files: on macOS to `~/.Trash`, on Windows to a quarantine folder under `%LOCALAPPDATA%`. A moved batch can be undone from the panel or History. Permanent deletion happens only in the panel, after a second confirmation, and only for batches this plugin moved; it cannot delete arbitrary paths and cannot be undone.
+
+The allow-set is re-checked in the host. Protected paths always win, symbolic links are rejected for cleanup items, move sources, move destinations, and directory browsing, and only results from the last 10 minutes are accepted. Needs-review items, running caches, and system items never enter the allow-set. Cloud-backed files and app data directories are excluded from moves. Batches are capped at 200 items and split by the server.
+
+## Requirements
+
+- macOS: Full Disk Access plus `python3`; the scanner uses built-in tools such as `du`, `plutil`, and `sips`.
+- Windows: `py -3` or `python`, with PowerShell for photo decoding; some system directories need administrator rights.
+- DSH 0.2.1 or newer. Linux is unverified.
+
+## Install
+
+Install from the DSH plugins page (Discover), or run:
+
+```bash
+dsh plugin add deepclean-mydisk
+```
+
+Add `--profile <name>` for a named profile. This installs the published npm package (prebuilt, no build step); to install from the source repository instead, use `dsh plugin add github:huangxiaoliang/deepclean-mydisk-plugin`. Restart DSH after installing or updating.
+
+## Limits
+
+- Windows `appCaches` scanning is not implemented, and chat-app cache classification is macOS-only.
+- Windows real-device acceptance is still pending.
+- Cross-disk moves are not undoable, and the original location is not kept.
+- Similar-photo scanning is limited to four folders, 600 photos, and a 200 KB minimum; cloud folders and photo libraries are skipped.
+- Permanent deletion is irreversible. Undo applies to moved batches only.
+- Linux is unverified. In English mode, some scanner-generated text is still Chinese.

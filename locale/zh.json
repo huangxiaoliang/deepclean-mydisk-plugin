@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "DeepClean MyDisk",
+    "description": "只读磁盘体检；清理把选中文件移入废纸篓或隔离区，可撤销。",
+    "detail": "docs/plugin/DETAIL.zh.md"
+  }
+}

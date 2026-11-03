@@ -7,6 +7,11 @@ report.md
 report.json
 acceptance-report/
 
+# 内部评审 / 分析笔记（原始材料，不入库；公开仓库只保留产品文档）
+docs/review/
+docs/analysis/
+.review/
+
 # Claude Code 本地个人配置（不共享给其他 agent / 不提交）
 CLAUDE.local.md
 .claude/settings.local.json
