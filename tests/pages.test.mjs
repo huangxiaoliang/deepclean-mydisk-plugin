@@ -603,3 +603,16 @@ test('clean list orders cleanable rows before needs-review and protected rows', 
   assert.ok(order.includes('review'), 'needs-review rows present')
   assert.equal(order[order.length - 1], 'protected', 'protected rows come last')
 })
+
+test('overlapping application and developer rows cannot bypass a running browser in the UI', () => {
+  const overview = { ...mockOverview, report: { ...mockOverview.report,
+    caches: [], special: [], leftoverGroups: [],
+    devCaches: [{ path: '/tmp/Google/Chrome/sub-cache', kb: 10000, cleanable: true }],
+    appCaches: [{ baseId: 'google', app: 'Google', paths: ['/tmp/Google'], kb: 20000, cleanable: true }],
+    browsers: [{ name: 'Chrome', path: '/tmp/Google/Chrome', kb: 8000, running: true }],
+  } }
+  const html = renderWithData(cases.find(([name]) => name === 'clean-junk')[1], 'zh', overview)
+  assert.ok(!html.includes('aria-label="选择 Google'), 'parent cache is read-only')
+  assert.ok(!html.includes('aria-label="选择 sub-cache'), 'descendant cache is read-only')
+  assert.ok(html.includes('App 正在运行，退出后可清理'))
+})

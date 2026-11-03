@@ -611,6 +611,7 @@ def scan(args):
         r["truncated"] |= trunc
         r["devCaches"].append({**spec, "kb": kb // 1024})
 
+    proc_names = running_process_names()
     for spec in browser_specs():
         if not fresh(spec["path"]):
             continue
@@ -629,7 +630,6 @@ def scan(args):
         yield programdata, SYSTEM_PROGRAMDATA
 
     leftover_splits = {}
-    proc_names = running_process_names()
     for root, skip in candidate_roots():
         if not root or not Path(root).is_dir():
             continue
@@ -738,7 +738,7 @@ def render(r, args):
           [{"path": c["path"], "kb": c["kb"], "note": f"{c['label']}；{c['advice']}"}
            for c in r["caches"] if c["safe"] and not c["system"] and c.get("cleanable", True)]
           + [{"path": b["path"], "kb": b["kb"], "note": f"{b['name']} 浏览器缓存，可重建（不碰书签/密码）"}
-             for b in r.get("browsers", [])])
+             for b in r.get("browsers", []) if not b.get("running")])
     table("二、已卸载残留（推荐清理）",
           [{"path": g["paths"][0], "kb": g["kb"], "note": f"{g['name']}；{g['why']}"}
            for g in r["leftoverGroups"] if g["bucket"] == "safe"])
@@ -754,7 +754,9 @@ def render(r, args):
           [{"path": b["path"], "kb": b["kb"], "note": "个人文件，请自行判断"} for b in r["bigFiles"]])
     table("七、系统缓存与暂不可清理项（不建议清理）",
           [{"path": c["path"], "kb": c["kb"], "note": f"{c['label']}；{c['advice']}"}
-           for c in r["caches"] if c["system"] or not c.get("cleanable", True)])
+           for c in r["caches"] if c["system"] or not c.get("cleanable", True)]
+          + [{"path": b["path"], "kb": b["kb"], "note": f"{b['name']} 正在运行，退出后重新扫描再清理"}
+             for b in r.get("browsers", []) if b.get("running")])
 
     a("## 八、不建议清理")
     a("")

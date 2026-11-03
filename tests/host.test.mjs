@@ -4,7 +4,11 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dc-host-test-'))
+const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dc-host-test-')))
+process.env.HOME = root
+process.env.USERPROFILE = root
+process.env.LOCALAPPDATA = path.join(root, 'AppData', 'Local')
+process.env.APPDATA = path.join(root, 'AppData', 'Roaming')
 process.env.DSH_HOME = path.join(root, 'dsh')
 process.env.DEEPCLEAN_TRASH_DIR = path.join(root, 'trash')
 
@@ -590,4 +594,94 @@ test('quarantine purge requires explicit batchIds or all:true', async () => {
   const res = await call('/quarantine/purge', 'POST', JSON.stringify({}))
   assert.equal(res.code, 400)
   assert.match(res.body.error, /batchIds|all/)
+})
+
+test('ordinary application data cannot enter tree move candidates or host moves', async () => {
+  const profile = path.join(root, 'app-data-profile')
+  const env = { HOME: profile, USERPROFILE: profile, LOCALAPPDATA: path.join(profile, 'AppData', 'Local'), APPDATA: path.join(profile, 'AppData', 'Roaming') }
+  const previous = Object.fromEntries(Object.keys(env).map(k => [k, process.env[k]]))
+  Object.assign(process.env, env)
+  const dataRoots = [path.join(profile, 'Library', 'Application Support'), env.LOCALAPPDATA, env.APPDATA]
+  const dest = path.join(profile, 'destination')
+  fs.mkdirSync(dest, { recursive: true })
+  try {
+    for (const base of dataRoots) {
+      const folder = path.join(base, 'DemoApp')
+      fs.mkdirSync(folder, { recursive: true })
+      const file = path.join(folder, 'database.sqlite')
+      fs.writeFileSync(file, Buffer.alloc(2 * 1024 * 1024, 1))
+      assert.match(plugin.moveBlockReason(file), /数据目录/)
+      const res = mockRes()
+      await find('/tree').handler(mockReq('GET', '/dsh-deepclean/api/tree?path=' + encodeURIComponent(folder)), res)
+      assert.equal(res.code, 200)
+      const tree = JSON.parse(res.body)
+      assert.ok(tree.children.some(c => c.path === file && c.kb > 0), 'space is still counted')
+      assert.ok(!tree.bigFiles.some(f => f.path === file), 'direct drill-down must not re-expose a database')
+      assert.equal((await call('/move', 'POST', JSON.stringify({ paths: [file], destination: dest }))).code, 400)
+      assert.equal(fs.existsSync(file), true)
+    }
+    assert.equal(plugin.moveBlockReason(path.join(profile, 'Downloads', 'movie.mp4')), '')
+  } finally {
+    for (const [k,v] of Object.entries(previous)) { if (v === undefined) delete process.env[k]; else process.env[k] = v }
+  }
+})
+
+test('older batches remain recoverable and purgeable beyond the history page and audit rotation', async () => {
+  const { moveToTrash, restoreMoved } = await import('../lib/clean.js')
+  const log = path.join(process.env.DSH_HOME, 'deepclean-audit.log')
+  fs.mkdirSync(path.dirname(log), { recursive: true })
+  const previousLog = fs.existsSync(log) ? fs.readFileSync(log) : Buffer.alloc(0)
+  const previousCap = process.env.DEEPCLEAN_AUDIT_MAX_BYTES
+  try {
+    for (const rotate of [false, true]) {
+      fs.writeFileSync(log, '')
+      process.env.DEEPCLEAN_AUDIT_MAX_BYTES = rotate ? '2048' : '5000000'
+      const batches = []
+      for (let i = 0; i < 24; i++) {
+        const file = path.join(root, `old-batch-${rotate}-${i}.txt`)
+        fs.writeFileSync(file, 'KEEP')
+        const paths = [file]
+        if (i === 0) { const extra = file + '.extra'; fs.writeFileSync(extra, 'KEEP'); paths.push(extra) }
+        const batch = moveToTrash(paths, new Set(paths))
+        assert.equal(batch.results[0].ok, true)
+        if (i === 0) assert.equal(restoreMoved([batch.moved[0]], batch.batchId).results[0].ok, true)
+        batches.push(batch)
+      }
+      const history = (await call('/history')).body.cleans
+      const oldest = history.find(b => b.batchId === batches[0].batchId)
+      assert.ok(oldest, 'older active batches need a visible restore entry')
+      assert.equal(oldest.count, 2)
+      assert.equal(oldest.restorable, 1, 'partial restore must survive rotation')
+      assert.equal(oldest.restored, 1)
+      const restored = await call('/restore', 'POST', JSON.stringify({ batchId: batches[0].batchId }))
+      assert.equal(restored.code, 200, JSON.stringify(restored.body))
+      assert.equal(restored.body.summary.ok, 1)
+      assert.equal(fs.readFileSync(batches[0].moved[0].from, 'utf8'), 'KEEP')
+      const purged = await call('/quarantine/purge', 'POST', JSON.stringify({ all: true }))
+      assert.equal(purged.code, 200)
+      assert.equal(purged.body.total.purged, 23)
+      assert.ok(batches.every(b => !fs.existsSync(b.moved[0].to)))
+    }
+  } finally {
+    fs.writeFileSync(log, previousLog)
+    if (previousCap === undefined) delete process.env.DEEPCLEAN_AUDIT_MAX_BYTES
+    else process.env.DEEPCLEAN_AUDIT_MAX_BYTES = previousCap
+    plugin.invalidateQuarantine()
+  }
+})
+
+test('running browser protection also blocks overlapping cache parents and descendants', () => {
+  const parent = path.join(root, 'Google'), browser = path.join(parent, 'Chrome')
+  const sibling = path.join(root, 'OtherApp', 'Cache')
+  const report = {
+    caches: [{ path: parent }, { path: sibling }],
+    browsers: [{ path: browser, running: true }],
+    devCaches: [{ path: path.join(browser, 'sub-cache'), cleanable: true }],
+    appCaches: [{ paths: [parent], cleanable: true }],
+    leftoverGroups: [{ paths: [parent], bucket: 'safe' }],
+    special: [{ categories: [{ paths: [parent], cleanable: true }] }],
+  }
+  const allowed = plugin.allowedPaths(report)
+  assert.ok(allowed.has(sibling), 'unrelated cache remains cleanable')
+  for (const blocked of [parent, browser, path.join(browser, 'sub-cache')]) assert.ok(!allowed.has(blocked), blocked)
 })

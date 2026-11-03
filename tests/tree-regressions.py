@@ -32,10 +32,13 @@ def check(name, cond, detail=""):
         fails.append(name)
 
 
+env_keys = ("HOME", "USERPROFILE", "LOCALAPPDATA", "APPDATA")
+previous_env = {key: os.environ.get(key) for key in env_keys}
 MB = 1024 * 1024
 tmp = Path(tempfile.mkdtemp(prefix="dc-tree-regress 中文 "))
 try:
     root = tmp / "home 用户"
+    os.environ.update(HOME=str(root), USERPROFILE=str(root), LOCALAPPDATA=str(root / "AppData" / "Local"), APPDATA=str(root / "AppData" / "Roaming"))
     a = root / "a 相册"
     deep = a / "deep"
     b = root / "b 小目录"
@@ -127,6 +130,11 @@ try:
 
     check("根目录不可读返回 None", tree.inspect_tree(str(tmp / "不存在")) is None)
 finally:
+    for key, value in previous_env.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
     shutil.rmtree(tmp, ignore_errors=True)
 
 print()

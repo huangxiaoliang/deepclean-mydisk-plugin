@@ -154,7 +154,7 @@ test('AI report digest carries risk totals, category totals and unlisted aggrega
   assert.match(text, /推荐清理（2 项，合计 3\.85G）/)
   assert.match(text, /可选清理（14 项，合计/)
   assert.match(text, /另有 8 项未列出，合计/)
-  assert.match(text, /App 正在运行，退出后可清理/, 'needs-review rows keep their concrete reason')
+  assert.match(text, /App 正在运行[,，]退出后可清理/, 'needs-review rows keep their concrete reason')
   assert.match(text, /受保护（面板不会清理）（1 项，合计 200\.0M）/)
   assert.match(text, /可能含聊天记录\/文档\/笔记/)
   assert.match(text, /范围说明/)

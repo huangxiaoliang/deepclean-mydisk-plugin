@@ -39,3 +39,10 @@ test('macos scanner regressions (big_files streaming top-N heap, prune, budget c
   const r = spawnSync(cmd, [tests], { encoding: 'utf8', timeout: 60000 })
   assert.equal(r.status, 0, `stdout:\n${r.stdout}\nstderr:\n${r.stderr}`)
 })
+
+test('Windows complete scan integrates browser profiles and running protection', () => {
+  const tests = fileURLToPath(new URL('../scripts/windows-ci/scanner.py', import.meta.url))
+  const cmd = process.env.PYTHON || (win ? 'python' : 'python3')
+  const r = spawnSync(cmd, [tests], { encoding: 'utf8', timeout: 60000 })
+  assert.equal(r.status, 0, `stdout:\n${r.stdout}\nstderr:\n${r.stderr}`)
+})

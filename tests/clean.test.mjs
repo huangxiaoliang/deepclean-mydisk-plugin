@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { moveToTrash, undoBatch, restoreMoved, purgeMoved, appendAudit, auditLogPath, summarizeResults, quarantineSummary, quarantineRoot, trashDir } from '../lib/clean.js'
 
-const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dc-clean-test-'))
+const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dc-clean-test-')))
 process.env.DSH_HOME = path.join(root, 'dsh')
 process.env.DEEPCLEAN_TRASH_DIR = path.join(root, 'trash')
 
@@ -96,6 +96,7 @@ test('appendAudit rotates the log when it exceeds the configured cap', () => {
   process.env.DEEPCLEAN_AUDIT_MAX_BYTES = '2048'
   try {
     const file = auditLogPath()
+    fs.mkdirSync(path.dirname(file), { recursive: true })
     fs.writeFileSync(file, '')
     for (let i = 0; i < 60; i++) appendAudit({ action: 'clean', batchId: `rot-${i}`, moved: [{ from: `/f/${i}`, to: `/t/${i}` }] })
     const text = fs.readFileSync(file, 'utf8')
@@ -200,7 +201,7 @@ test('moveToTrash / restore report audit failures instead of silently promising 
 
 test('quarantineSummary: counts only plugin batches, honours budget and layouts', () => {
   const previous = process.env.DEEPCLEAN_TRASH_DIR
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dc-quarantine-'))
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dc-quarantine-')))
   process.env.DEEPCLEAN_TRASH_DIR = root
   try {
     assert.equal(quarantineRoot(), root)
@@ -296,4 +297,36 @@ test('trashDir resolves a relative DEEPCLEAN_TRASH_DIR', () => {
     if (previous === undefined) delete process.env.DEEPCLEAN_TRASH_DIR
     else process.env.DEEPCLEAN_TRASH_DIR = previous
   }
+})
+
+test('restore refuses a linked higher ancestor even with missing parent directories', () => {
+  for (const missing of [false, true]) {
+    const dir = makeDir('ancestor-' + missing)
+    const original = path.join(dir, 'original'), redirected = path.join(dir, 'redirected')
+    fs.mkdirSync(path.join(original, 'sub'), { recursive: true })
+    fs.mkdirSync(redirected)
+    if (!missing) fs.mkdirSync(path.join(redirected, 'sub'))
+    const source = path.join(original, 'sub', 'keep.txt')
+    fs.writeFileSync(source, 'KEEP')
+    const batch = moveToTrash([source], new Set([source]))
+    fs.rmSync(original, { recursive: true })
+    fs.symlinkSync(redirected, original, process.platform === 'win32' ? 'junction' : 'dir')
+    const out = restoreMoved(batch.moved, batch.batchId)
+    assert.equal(out.results[0].ok, false)
+    assert.equal(out.results[0].code, 'symlink')
+    assert.equal(fs.existsSync(path.join(redirected, 'sub', 'keep.txt')), false)
+    assert.equal(fs.existsSync(batch.moved[0].to), true)
+  }
+  const dir = makeDir('ancestor-dotdot'), guard = path.join(dir, 'guard')
+  const redirected = path.join(dir, 'redirected'), inner = path.join(redirected, 'inner')
+  fs.mkdirSync(guard)
+  fs.mkdirSync(inner, { recursive: true })
+  const lexical = guard + path.sep + '..' + path.sep + 'keep.txt'
+  fs.writeFileSync(lexical, 'KEEP')
+  const batch = moveToTrash([lexical], new Set([lexical]))
+  fs.rmdirSync(guard)
+  fs.symlinkSync(inner, guard, process.platform === 'win32' ? 'junction' : 'dir')
+  const out = restoreMoved(batch.moved, batch.batchId)
+  assert.equal(out.results[0].code, 'symlink', 'normalizing dot segments must not conceal a linked ancestor')
+  assert.equal(fs.existsSync(path.join(redirected, 'keep.txt')), false)
 })
