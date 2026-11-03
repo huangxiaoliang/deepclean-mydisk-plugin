@@ -18,11 +18,11 @@
 | browser-scan | 临时中文目录中创建 Chrome/Edge/Firefox profile 缓存，运行完整 Windows `scan()` 和报告渲染；校验运行标记、推荐表及只读不变性 |
 | volume-setup | 只在临时目录新建唯一的 128 MB VHD，挂载并初始化其 NTFS 分区；绝不选择已有物理盘 |
 | native-scenarios | 中文长路径清理与恢复、真实独占文件锁、较高祖先 junction、普通 AppData 数据库保护、21 批全部释放、真实不同卷复制校验和重名拒绝 |
-| volume-cleanup | 尝试卸载此次新建的 VHD；setup 中途失败也会进入清理 |
+| volume-cleanup | 尝试卸载此次新建的 VHD；setup 中途失败也会进入清理。best-effort：卸载失败只写日志，不改变 job 结论 |
 
 `environment.json` 包含 commit SHA、runner镜像/系统/架构、Node版本。`results.json` 提供每阶段退出码和耗时。成功完成的浏览器扫描还会生成合成数据的 JSON/Markdown 报告；若扫描中途崩溃，以 `browser-scan.log` 的 traceback 为准，不会伪造扫描报告。
 
-`windows-11-arm` 是 Windows 11 客户端 OS（不是 Server），用于补客户端分支、UWP/MSIX 布局与 ARM64 `.NET` 解码。若该镜像无法创建可丢弃测试卷，`volume-setup` 会显式记作 `SKIP` 并写进 `summary.md`，跨卷用例随之标记 skip，其余原生用例照常执行；Server 镜像仍必须提供测试卷，不允许静默跳过。该 label 不可用时 job 会直接失败，按 GitHub 提示检查仓库/计划是否可用 Arm64 runner。
+`windows-11-arm` 是 Windows 11 客户端 OS（不是 Server），用于补客户端分支、UWP/MSIX 布局与 ARM64 `.NET` 解码。若该镜像无法创建可丢弃测试卷，`volume-setup` 会显式记作 `SKIP` 并写进 `summary.md`，跨卷用例随之标记 skip，其余原生用例照常执行；Server 镜像仍必须提供测试卷，不允许静默跳过。该 label 不可用时 job 会排队等待 runner 并最终超时/失败，需检查仓库/计划是否可用 Arm64 runner。
 
 OS发现（注册表、进程集合等）在浏览器场景中固定为合成值，以便稳定复现；浏览器目录枚举、文件大小、扫描主流程、报告生成仍使用生产代码。真实进程解析与原生图片解码由原有回归覆盖。
 

@@ -240,9 +240,11 @@ try:
               sys_temp.get("admin") is True and sys_temp.get("cleanable") is False
               and sys_temp.get("system") is False, repr(sys_temp))
         winupd = specs.get("Windows 更新缓存")
-        if winupd:
+        if Path("C:/Windows/SoftwareDistribution/Download").exists():
+            # 目录存在时必须有 spec：否则删掉 cache_specs() 里的 add(...) 会被 SKIP 掩盖。
             check("cache_specs 更新缓存标记 system 且不 safe",
-                  winupd.get("system") is True and winupd.get("safe") is False, repr(winupd))
+                  winupd is not None and winupd.get("system") is True and winupd.get("safe") is False,
+                  repr(winupd))
         else:
             # C:/Windows/SoftwareDistribution/Download 是真实系统目录，某些镜像可能没有；
             # 这条是环境依赖项，缺目录时显式 SKIP 而不是误报产品回归。
