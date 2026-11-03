@@ -46,3 +46,13 @@ test('Windows complete scan integrates browser profiles and running protection',
   const r = spawnSync(cmd, [tests], { encoding: 'utf8', timeout: 60000 })
   assert.equal(r.status, 0, `stdout:\n${r.stdout}\nstderr:\n${r.stderr}`)
 })
+
+// --platform windows 在非 Windows 宿主上曾经直接 traceback（C:/ 不存在）。
+// 现在必须给出明确错误与退出码 2，而不是把 FileNotFoundError 抛给调用方。
+test('windows backend is refused with a clear error on a non-Windows host', { skip: win, timeout: 30000 }, () => {
+  const cmd = process.env.PYTHON || 'python3'
+  const r = spawnSync(cmd, [script, '--platform', 'windows', '--quick'], { encoding: 'utf8', timeout: 25000 })
+  assert.equal(r.status, 2, `stdout:\n${r.stdout}\nstderr:\n${r.stderr}`)
+  assert.match(r.stderr, /Windows/)
+  assert.doesNotMatch(r.stderr, /Traceback|FileNotFoundError/)
+})

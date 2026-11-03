@@ -808,15 +808,23 @@ def render(r, args):
     a('$q = Join-Path $env:LOCALAPPDATA "deepclean-mydisk\\trash"')
     a('New-Item -ItemType Directory -Force $q | Out-Null')
     emitted = 0
+
+    def command_path(path):
+        # 先脱敏再按 PowerShell 规则转义。顺序反了的话，home 里的 ' 会被转成 ''，
+        # 末尾的 md.replace(home, "%USERPROFILE%") 就匹配不到，完整用户名路径会泄漏到
+        # 报告（以及默认 --redact 的 disk_audit 输出/模型上下文）。
+        text = str(path)
+        return text.replace(r["home"], "%USERPROFILE%") if args.redact else text
+
     for c in r["caches"]:
         if not c["safe"] or c["system"] or not c.get("cleanable", True) or c["kb"] < 100 * 1024:
             continue
-        a(f"Move-Item -LiteralPath '{c['path']}' -Destination $q")
+        a("Move-Item -LiteralPath " + _move_quote(command_path(c["path"])) + " -Destination $q")
         emitted += 1
     for g in r["leftoverGroups"]:
         if g["bucket"] != "safe" or g["kb"] < 100 * 1024:
             continue
-        a(f"Move-Item -LiteralPath '{g['paths'][0]}' -Destination $q")
+        a("Move-Item -LiteralPath " + _move_quote(command_path(g["paths"][0])) + " -Destination $q")
         emitted += 1
     if emitted == 0:
         a("# 本次没有 ≥100 MB 的推荐清理项，无需移动")
@@ -826,7 +834,10 @@ def render(r, args):
     md = "\n".join(L)
     if args.redact:
         home = r["home"]
-        md = md.replace(home, "%USERPROFILE%").replace(r["host"], "***")
+        # 只替换 home：host 在上面的「机器」行里已经按 args.redact 直接写成 ***。
+        # 再对全文 replace(host, "***") 会把主机名碰巧是常见子串时（如 "h"）的文字
+        # 一起打碎（powershell → powers***ell）。
+        md = md.replace(home, "%USERPROFILE%")
     return md
 
 

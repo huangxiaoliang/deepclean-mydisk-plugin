@@ -55,6 +55,7 @@ DSH 插件：原生侧边栏磁盘空间工具（macOS / Windows），只读体�
 | `docs/review/` | 历次产品评审、P0/P1 修复记录与验收截图（本地材料，已被 `.gitignore` 忽略） |
 | `scripts/windows-ci/` + `docs/windows-ci.md` | Windows CI 的用例驱动、扫描器与卷构造脚本 |
 | `.github/workflows/tests.yml` | macOS + Windows CI（Node 24 + Python 3.12，只跑 `npm test`） |
+| `.github/workflows/windows-acceptance.yml` | Windows 原生验收矩阵：`windows-2022` / `windows-2025` / `windows-11-arm`（Windows 11 Arm64 客户端镜像；无测试卷时显式 SKIP 跨卷用例），详见 `docs/windows-ci.md` |
 
 ## AI 辅助清理（只读解释，不参与放行）
 
@@ -117,7 +118,7 @@ node scripts/preview.mjs                                    # http://127.0.0.1:4
 - `/api/tree` 走 `tree.py` + 60s 缓存（500 条 LRU）；tree.py 单趟遍历返回 `dirs` 各层清单，宿主一次播种全层缓存，下钻不再重复遍历；使用独立子进程句柄，浏览目录**不会**取消正在进行的扫描。
 - **AI 是单向投递**：只能把提示词排入当前会话，读不到模型回复；不要设计依赖模型输出的自动勾选、自动清理或结构化回填。
 - 新增/修改 AI 入口时必须复用 `lib/client.js` 的 `untrustedText` / `safeDisplayPath` / `aiRules`，中英文规则成对修改；不得给模型新增写工具，也不得把 `prompt` 结果用于 `allowedPaths` / `isProtected` / 新鲜度判断。
-- 测试按平台跳过：macOS 跳 2 个 Windows 专用 HTTP 用例（`tests/host.test.mjs` 的 Windows tree / thumbnail），结果 175 pass / 2 skip；Windows 跳 6 个 macOS 专用用例（3 个 symlink 清理/恢复、1 个跨盘复制链接、tree 拒家目录外、permissions），结果 171 pass / 6 skip。CI 两端都会跑全量。
+- 测试按平台跳过：macOS 跳 2 个 Windows 专用 HTTP 用例（`tests/host.test.mjs` 的 Windows tree / thumbnail），结果 179 pass / 2 skip；Windows 跳 7 个 macOS / 非 Windows 宿主专用用例（3 个 symlink 清理/恢复、1 个跨盘复制链接、tree 拒家目录外、permissions、`--platform windows` 拒绝用例），结果 174 pass / 7 skip。CI 两端都会跑全量。
 - 换行统一 **LF**（`.gitattributes` 的 `* text=auto eol=lf`）：页面测试用源码字符串替换注入视图，CRLF checkout 会让断言失配；不要改该文件或改用会转 CRLF 的克隆配置。
 
 ## 已知缺口（改代码前先看，均为代码事实）

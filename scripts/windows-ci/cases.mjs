@@ -134,7 +134,13 @@ test('native Windows: purge-all covers more than 20 plugin batches', native, asy
   assert.equal(quarantineSummary().files, 0)
 })
 
-test('native Windows: actual cross-volume copy verifies bytes and refuses overwrite', native, async t => {
+test('native Windows: actual cross-volume copy verifies bytes and refuses overwrite', {
+  ...native,
+  // 只有显式声明「该镜像没有可丢弃测试卷」的 job 才允许跳过；Server 镜像仍必须提供卷，
+  // 否则这条用例会失败而不是假装通过。必须保留 native.skip（非 Windows 宿主一律跳过），
+  // 否则 macOS/Linux 直接跑 cases.mjs 会丢掉平台保护。
+  skip: native.skip || (process.env.DEEPCLEAN_CI_ALLOW_MISSING_VOLUME === '1' && !process.env.DEEPCLEAN_TEST_VOLUME),
+}, async t => {
   const root = fixture(t)
   const volume = process.env.DEEPCLEAN_TEST_VOLUME
   assert.ok(volume, 'CI must provide a separate disposable volume; cannot silently skip')

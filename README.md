@@ -4,7 +4,7 @@ DSH 插件：macOS / Windows 原生侧边栏磁盘工具。**扫描只读，清�
 
 > 仓库：https://github.com/huangxiaoliang/deepclean-mydisk-plugin
 > 安装：`dsh plugin --profile <name> add deepclean-mydisk`（npm）；也可 `add github:huangxiaoliang/deepclean-mydisk-plugin` 或本地 `link:/绝对路径`
-> 测试：`npm test`（177 个用例，macOS 175 pass / 2 skip；GitHub Actions 矩阵 macOS + Windows）
+> 测试：`npm test`（181 个用例，macOS 179 pass / 2 skip；GitHub Actions 矩阵 macOS + Windows Server + Windows 11 Arm64）
 > Windows 真机验收：`docs/windows-acceptance.md` + `scripts/acceptance-windows.ps1`
 > 视觉验收：[design-qa.md](design-qa.md)
 
@@ -177,14 +177,14 @@ resources/images/    首页插画（只经宿主固定路由暴露）
 locale/              市场元数据（zh/en）
 assets/              插件市场图标
 scripts/             隔离预览、扫描器同步、Windows 验收 / CI
-tests/               node:test 177 个用例 + 照片解码回归
+tests/               node:test 181 个用例 + 照片解码回归
 docs/                Windows 验收清单、设计稿与视觉验收、插件详情页与评审记录
 ```
 
 ### 常用命令
 
 ```bash
-npm test                                                   # 177 个用例
+npm test                                                   # 181 个用例
 node --check lib/index.js lib/client.js lib/clean.js lib/platform.js scripts/preview.mjs
 python3 resources/scripts/deepclean.py --self-test         # 扫描器自检
 python3 resources/scripts/deepclean.py --check-permissions # 权限检查
@@ -194,9 +194,9 @@ node scripts/preview.mjs                                   # 隔离预览
 
 ### 测试与 CI
 
-- `npm test`（`node --test`）共 **177** 个用例（平台相关用例会跳过，实际数量与跳过项以 `npm test` 输出为准）；
-- 平台专用用例会跳过：macOS 跳过 2 个 Windows 专用 HTTP 用例（175 pass / 2 skip），Windows 跳过 6 个 macOS / 符号链接专用用例（171 pass / 6 skip）；
-- CI（`.github/workflows/tests.yml`）在 macOS + Windows 上跑 Node 24 + Python 3.12，只执行 `npm test`；
+- `npm test`（`node --test`）共 **181** 个用例（平台相关用例会跳过，实际数量与跳过项以 `npm test` 输出为准）；
+- 平台专用用例会跳过：macOS 跳过 2 个 Windows 专用 HTTP 用例（179 pass / 2 skip），Windows 跳过 7 个 macOS / 非 Windows 宿主专用用例（174 pass / 7 skip）；
+- CI（`.github/workflows/tests.yml`）在 macOS + Windows 上跑 Node 24 + Python 3.12，只执行 `npm test`；`.github/workflows/windows-acceptance.yml` 额外在 windows-2022 / windows-2025 / windows-11-arm 上跑原生验收（[docs/windows-ci.md](docs/windows-ci.md)）；
 - 页面测试是 SSR 渲染（`renderToString`），不是浏览器 E2E；真实交互请用隔离预览人工验收。
 
 ### 设计材料

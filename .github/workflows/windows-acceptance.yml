@@ -32,12 +32,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-2022, windows-2025]
+        include:
+          - os: windows-2022
+          - os: windows-2025
+          # Windows 11 Arm64 客户端镜像：真实客户端 OS，不是 Server。
+          # 客户端镜像可能缺少可丢弃的卷管理能力，跨卷用例显式 SKIP 并写进 summary。
+          - os: windows-11-arm
+            allow_missing_volume: '1'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     env:
       PYTHONUTF8: '1'
       PYTHONIOENCODING: utf-8
+      DEEPCLEAN_CI_ALLOW_MISSING_VOLUME: ${{ matrix.allow_missing_volume || '0' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

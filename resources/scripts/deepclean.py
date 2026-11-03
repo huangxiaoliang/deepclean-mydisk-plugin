@@ -97,6 +97,13 @@ def main():
     if platform not in ("macos", "windows"):
         print(f"不支持的平台：{platform}", file=sys.stderr)
         return 2
+    # Windows 后端依赖注册表、tasklist、%SystemDrive% 等真实 Windows 语义。
+    # 非 Windows 宿主上强行透传只会抛 FileNotFoundError（例如 C:/ 不存在）；
+    # 跨平台的合成扫描入口是 scripts/windows-ci/scanner.py，不是这里的 --platform。
+    if platform == "windows" and not sys.platform.startswith("win"):
+        print("Windows 后端只能在 Windows 上运行；跨平台合成扫描请用 scripts/windows-ci/scanner.py",
+              file=sys.stderr)
+        return 2
     if self_test:
         if platform == "windows":
             return subprocess.call([sys.executable, str(WINDOWS), "--self-test"])

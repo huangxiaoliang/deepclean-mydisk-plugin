@@ -85,6 +85,34 @@ try:
     report_d = {**report, "disk": {"total": 1, "used": 1, "free": 1, "drive": "D:"}}
     check("系统盘盘符来自 SystemDrive", "系统盘 D:" in win.render(report_d, ns))
 
+    # 建议命令的路径必须按 PowerShell 单引号规则转义：Windows 用户名带 ' 很常见
+    # （如 O'Brien），未转义会让用户复制出来的 Move-Item 直接报解析错误。
+    tricky = tmp / "O'Brien cache"
+    tricky.mkdir()
+    report_q = {**report, "caches": caches + [
+        {"path": str(tricky), "label": "缓存", "kb": 200 * 1024, "safe": True, "system": False,
+         "admin": False, "cleanable": True, "advice": "缓存，可重建"}]}
+    cmd_text = win.render(report_q, ns).split("```powershell")[1].split("```")[0]
+    check("建议命令转义单引号路径", "O''Brien cache" in cmd_text, cmd_text)
+
+    # 先脱敏再转义：home 自身带 ' 时（合法 Windows 用户名），命令块也必须替换成
+    # %USERPROFILE%；否则 --redact（disk_audit 默认）会把完整用户名路径泄漏到输出。
+    quoted_home = str(tmp / "O'Brien")
+    secret_cache = quoted_home + "/AppData/Local/Secret/Cache"
+    report_r = {**report, "home": quoted_home, "caches": [
+        {"path": secret_cache, "label": "缓存", "kb": 300 * 1024, "safe": True, "system": False,
+         "admin": False, "cleanable": True, "advice": "缓存，可重建"}],
+        "leftoverGroups": [{"baseId": "Secret", "name": "Secret", "kb": 250 * 1024, "count": 1,
+                            "bucket": "safe", "why": "已卸载", "paths": [quoted_home + "/AppData/Local/Secret/Leftover"],
+                            "bundleIds": []}]}
+    ns_redact = argparse.Namespace(redact=True, quick=True, min_mb=300, min_leftover_mb=10)
+    md_redacted = win.render(report_r, ns_redact)
+    cmd_redacted = md_redacted.split("```powershell")[1].split("```")[0]
+    check("命令块先脱敏再转义（home 含单引号）",
+          "%USERPROFILE%" in cmd_redacted and "O'Brien" not in cmd_redacted
+          and "O''Brien" not in cmd_redacted, cmd_redacted)
+    check("脱敏报告不泄漏 home", "O'Brien" not in md_redacted, md_redacted[-500:])
+
     # 卸载残留 bucket 判定：整容器一律 confirm，safe 只来自缓存子目录拆分
     check("媒体小残留也需确认", win.classify_leftover("TenVideo", 10 * 1024)[0] == "confirm")
     check("媒体大残留需确认", win.classify_leftover("TenVideo", 60 * 1024)[0] == "confirm")
@@ -171,6 +199,89 @@ try:
                  "why": "x", "paths": [str(leftover)], "bundleIds": []}]
     win.apply_leftover_cache_split(wrunning, {str(leftover): {"kb": 60, "paths": ["Cache"]}})
     check("windows 非 confirm 组不拆分", not any(g.get("cachePart") for g in wrunning), repr(wrunning))
+
+    # cache_specs 的 admin/system/cleanable 标记会被宿主 allowedPaths 直接信任；
+    # 这里在临时目录上跑真实函数（不 stub），防止标记被悄悄改掉。
+    saved_env = {k: os.environ.get(k) for k in
+                 ("LOCALAPPDATA", "APPDATA", "TEMP", "TMP", "USERPROFILE")}
+    saved_cwd = os.getcwd()
+    try:
+        local = tmp / "cs-local"
+        (local / "Temp").mkdir(parents=True)
+        (local / "CrashDumps").mkdir()
+        (local / "npm-cache").mkdir()
+        roaming = tmp / "cs-roaming"
+        roaming.mkdir()
+        temp_env = tmp / "cs-temp"
+        temp_env.mkdir()
+        os.environ["LOCALAPPDATA"] = str(local)
+        os.environ["APPDATA"] = str(roaming)
+        os.environ["TEMP"] = str(temp_env)
+        os.environ.pop("TMP", None)
+        os.environ["USERPROFILE"] = str(tmp / "cs-profile")
+        # Path("C:/Windows/Temp") 在非 Windows 宿主上是相对路径：切到临时目录后
+        # 它同样会命中下面创建的目录；Windows 上则直接命中真实系统目录，两平台走同一分支。
+        # 注意 Windows 不允许创建名为 "C:" 的目录，只有 posix 才需要伪造盘符子目录。
+        if os.name != "nt":
+            sysroot = tmp / "cs-sysroot"
+            (sysroot / "C:" / "Windows" / "Temp").mkdir(parents=True)
+            (sysroot / "C:" / "Windows" / "SoftwareDistribution" / "Download").mkdir(parents=True)
+            os.chdir(sysroot)
+        specs = {s["label"]: s for s in win.cache_specs()}
+        user_temp = specs.get("用户临时文件", {})
+        check("cache_specs 用户 Temp 不可清理且非管理员",
+              user_temp.get("cleanable") is False and user_temp.get("admin") is False, repr(user_temp))
+        crash = specs.get("崩溃转储", {})
+        check("cache_specs 崩溃转储可清理",
+              crash.get("cleanable") is True and crash.get("system") is False and crash.get("admin") is False,
+              repr(crash))
+        sys_temp = specs.get("系统临时文件", {})
+        check("cache_specs 系统 Temp 需管理员且不可清理",
+              sys_temp.get("admin") is True and sys_temp.get("cleanable") is False
+              and sys_temp.get("system") is False, repr(sys_temp))
+        winupd = specs.get("Windows 更新缓存")
+        if winupd:
+            check("cache_specs 更新缓存标记 system 且不 safe",
+                  winupd.get("system") is True and winupd.get("safe") is False, repr(winupd))
+        else:
+            # C:/Windows/SoftwareDistribution/Download 是真实系统目录，某些镜像可能没有；
+            # 这条是环境依赖项，缺目录时显式 SKIP 而不是误报产品回归。
+            print("SKIP  cache_specs 更新缓存（该平台没有 C:/Windows/SoftwareDistribution/Download）")
+    finally:
+        os.chdir(saved_cwd)
+        for k, v in saved_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    # 云盘根（OneDrive 等）必须有正例：宿主 moveBlockReason/allowedPaths 依赖它。
+    saved_cloud_env = {k: os.environ.get(k) for k in
+                       ("USERPROFILE", "OneDrive", "OneDriveConsumer", "OneDriveCommercial")}
+    try:
+        profile = tmp / "cloud-profile"
+        profile.mkdir()
+        onedrive = profile / "OneDrive"
+        onedrive.mkdir()
+        (profile / "OneDrive - Contoso").mkdir()
+        (profile / "Dropbox").mkdir()
+        os.environ["USERPROFILE"] = str(profile)
+        os.environ["OneDrive"] = str(onedrive)
+        os.environ.pop("OneDriveConsumer", None)
+        os.environ.pop("OneDriveCommercial", None)
+        roots = set(win.cloud_roots())
+        check("cloud_roots 识别 OneDrive 环境变量",
+              str(onedrive.resolve()) in roots, repr(sorted(roots)))
+        check("cloud_roots 识别 profile 下的 OneDrive 子目录",
+              str((profile / "OneDrive - Contoso").resolve()) in roots, repr(sorted(roots)))
+        check("cloud_roots 识别 Dropbox",
+              str((profile / "Dropbox").resolve()) in roots, repr(sorted(roots)))
+    finally:
+        for k, v in saved_cloud_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 finally:
     shutil.rmtree(tmp, ignore_errors=True)
 
