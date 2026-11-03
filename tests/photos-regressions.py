@@ -44,7 +44,7 @@ class PhotoTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / 'out.json'
             files = [dict(path='C:/fixture.bmp', kb=300, mtime=1, size=307200)]
-            with patch.object(sys, 'platform', 'win32'), patch.object(sys, 'argv', ['photos.py', '--json', str(out)]), patch.object(photos, 'collect', return_value=files), patch.object(photos.subprocess, 'run', side_effect=FileNotFoundError('powershell.exe')):
+            with patch.object(sys, 'platform', 'win32'), patch.object(sys, 'argv', ['photos.py', '--json', str(out)]), patch.object(photos, 'collect', return_value=(files, {'cloud': 0, 'package': 0})), patch.object(photos.subprocess, 'run', side_effect=FileNotFoundError('powershell.exe')):
                 with self.assertRaises(FileNotFoundError):
                     photos.main()
             self.assertFalse(out.exists())
@@ -54,10 +54,32 @@ class PhotoTests(unittest.TestCase):
             out = Path(td) / 'out.json'
             files = [dict(path='C:/fixture.heic', kb=300, mtime=1, size=307200)]
             completed = subprocess.CompletedProcess([], 0, '[{"path":"C:/fixture.heic","error":"unsupported"}]', '')
-            with patch.object(sys, 'platform', 'win32'), patch.object(sys, 'argv', ['photos.py', '--json', str(out)]), patch.object(photos, 'collect', return_value=files), patch.object(photos.subprocess, 'run', return_value=completed):
+            with patch.object(sys, 'platform', 'win32'), patch.object(sys, 'argv', ['photos.py', '--json', str(out)]), patch.object(photos, 'collect', return_value=(files, {'cloud': 0, 'package': 0})), patch.object(photos.subprocess, 'run', return_value=completed):
                 with self.assertRaisesRegex(RuntimeError, 'No images could be decoded'):
                     photos.main()
             self.assertFalse(out.exists())
+
+    def test_cloud_and_package_dirs_are_skipped(self):
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td) / 'home'
+            pictures = home / 'Pictures'
+            pictures.mkdir(parents=True)
+            (pictures / 'a.bmp').write_bytes(b'x')
+            cloud = home / 'OneDrive'
+            cloud.mkdir(parents=True)
+            (cloud / 'cloud-only.bmp').write_bytes(b'x')
+            package = pictures / 'My Library.photoslibrary'
+            package.mkdir()
+            (package / 'inside.bmp').write_bytes(b'x')
+            os.environ['DEEPCLEAN_CLOUD_ROOTS'] = json.dumps([str(cloud)])
+            try:
+                files, stats = photos.collect([pictures, cloud], 0, 100)
+            finally:
+                os.environ.pop('DEEPCLEAN_CLOUD_ROOTS', None)
+            self.assertEqual([Path(f['path']).name for f in files], ['a.bmp'],
+                             'cloud/packages must not produce cleanup candidates')
+            self.assertGreaterEqual(stats['package'], 1)
+            self.assertGreaterEqual(stats['cloud'], 1)
 
     @unittest.skipUnless(sys.platform == 'win32' or shutil.which('sips'), 'requires native Windows or macOS decoder')
     def test_native_identical_images_and_thumbnail_are_read_only(self):

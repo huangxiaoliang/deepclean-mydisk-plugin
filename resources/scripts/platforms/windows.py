@@ -7,6 +7,7 @@
 import argparse
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -36,6 +37,148 @@ SYSTEM_PROGRAMDATA = {
     "apple", "google", "mozilla", "tencent", "deepclean-mydisk",
     "chocolatey", "chocolateyhttpcache", "runner", "kind", "scoop",
 }
+
+# 卸载残留的 bucket 判定（目录名小写子串），与 macOS classify() 同口径：
+# 整容器一律 confirm（只读）；safe 只来自 cache_subdirs() 拆出的缓存子目录，
+# 不放宽「需确认不进允许集合」的硬约束。
+LEFTOVER_MEDIA_HINTS = (
+    "tenvideo", "iqiyi", "qiyi", "youku", "bilibili", "qqlive", "mangotv",
+    "neteasecloudmusic", "kugou", "kuwo", "qqmusic", "spotify", "douyin", "tiktok",
+)
+LEFTOVER_MEETING_HINTS = (
+    "zoom", "teams", "webex", "voov", "wemeet", "tencentmeeting",
+)
+def classify_leftover(name, kb):
+    """整容器「需确认」；缓存子目录由 apply_leftover_cache_split 单独列为可清理。"""
+    low = name.lower()
+    if any(h in low for h in LEFTOVER_MEDIA_HINTS):
+        return "confirm", "媒体类应用已卸载；其中缓存子目录会单独列出（可清理），其余可能含已下载内容"
+    if any(h in low for h in LEFTOVER_MEETING_HINTS):
+        return "confirm", "会议软件已卸载；其中缓存子目录会单独列出（可清理），录制/文档等需确认"
+    return "confirm", "未匹配到已安装程序；可能含用户数据"
+
+
+# 聊天类容器不做缓存拆分（交给专门的聊天清理/只读展示）。
+CHAT_DIR_HINTS = ("wechat", "weixin", "wework", "qq", "telegram", "discord", "slack",
+                  "feishu", "lark", "dingtalk", "whatsapp", "line")
+
+
+def is_chat_dir(name):
+    low = name.lower()
+    return any(hint in low for hint in CHAT_DIR_HINTS)
+
+
+def proc_matches_dir(name, procs):
+    """目录名与 tasklist 进程名（去掉 .exe）做归一化包含匹配；取不到进程快照时按「未知」处理。"""
+    norm = _norm_name(name).replace(" ", "")
+    if not norm or not procs:
+        return False
+    for exe in procs:
+        stem = exe[:-4] if exe.endswith(".exe") else exe
+        stem = _norm_name(stem).replace(" ", "")
+        if stem and (stem in norm or norm in stem):
+            return True
+    return False
+
+
+def should_split_leftover(name, apps, procs):
+    """只对「未安装、未运行、非聊天类」的 confirm 残留拆缓存子目录。
+
+    installed_apps() 取不到（空）时 fail-closed：宁可不拆，也不把在用应用数据默认勾选。
+    """
+    if not apps:
+        return False
+    if is_chat_dir(name):
+        return False
+    if proc_matches_dir(name, procs):
+        return False
+    return True
+
+
+CACHE_DIR_NAMES = {
+    "cache", "caches", "cache2", "gpucache", "code cache", "cachestorage",
+    "service worker", "crashpad", "tmp", "temp",
+}
+CACHE_SKIP_TOP = {"documents", "desktop", "downloads", "pictures", "videos", "music"}
+
+
+def cache_subdirs(base_dir, max_depth=3, deadline=None):
+    """已卸载残留目录里的可再生缓存子目录（不跟随重解析点、限制深度与时间预算）。"""
+    base = os.path.abspath(str(base_dir))
+    if not os.path.isdir(base) or is_reparse(base):
+        return []
+    hits = []
+    for root, dirs, _files in os.walk(base):
+        if deadline and time.time() > deadline:
+            break
+        rel = os.path.relpath(root, base)
+        if rel != "." and rel.split(os.sep)[0].lower() in CACHE_SKIP_TOP:
+            dirs[:] = []
+            continue
+        depth = 0 if rel == "." else rel.count(os.sep) + 1
+        if depth > max_depth:
+            dirs[:] = []
+            continue
+        dirs[:] = [d for d in dirs if not is_reparse(os.path.join(root, d))]
+        # 目录本身不能算自己的缓存子目录（%LOCALAPPDATA%\Cache 这类名字会自命中）。
+        if os.path.abspath(root) != base and os.path.basename(root).lower() in CACHE_DIR_NAMES:
+            hits.append(root)
+            dirs[:] = []
+    return hits
+
+
+def _strict_descendant(path, parents):
+    try:
+        real = os.path.normcase(os.path.realpath(str(path)))
+    except OSError:
+        return False
+    for parent in parents or []:
+        try:
+            base = os.path.normcase(os.path.realpath(str(parent)))
+        except OSError:
+            continue
+        if real != base and real.startswith(base + os.sep):
+            return True
+    return False
+
+
+def apply_leftover_cache_split(groups, splits):
+    """把 confirm 残留组里的缓存子目录拆成独立 safe 组（groups 原地修改）。
+
+    splits: {残留路径: {"kb": 千字节, "paths": [缓存子目录]}}，只含未安装 App 的缓存子目录。
+    拆出的组带 cachePart=True，客户端据此显示「App · 缓存」；原组保留其余数据并保持 confirm。
+    """
+    by_path = {}
+    for group in groups:
+        paths = group.get("paths") or []
+        if paths:
+            by_path[paths[0]] = group
+    for path, split in list(splits.items()):
+        group = by_path.get(path)
+        if group is None or group.get("bucket") != "confirm":
+            continue
+        cache_kb = int(split.get("kb") or 0)
+        if cache_kb < 1024:
+            continue
+        raw_paths = list(split.get("paths") or [])
+        paths = [p for p in raw_paths if _strict_descendant(p, group.get("paths"))]
+        if not paths or len(paths) != len(raw_paths):
+            continue
+        groups.append({
+            "baseId": f'{group["baseId"]}.cache',
+            "name": group["name"],
+            "cachePart": True,
+            "kb": cache_kb,
+            "count": len(split.get("paths") or []),
+            "bucket": "safe",
+            "why": "已卸载 App 的缓存子目录，可重建；文档/聊天等数据仍保留",
+            "paths": paths,
+            "bundleIds": [],
+        })
+        group["kb"] = max(0, group["kb"] - cache_kb)
+        group["why"] = f'{group["why"]}；其中缓存子目录已单独列出（可清理）'
+    groups[:] = [g for g in groups if int(g.get("kb") or 0) > 0]
+    return groups
 
 
 def _stdout_utf8():
@@ -165,13 +308,36 @@ def installed_apps():
     return apps
 
 
-def _tokens(text):
+_CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+_PAREN_RE = re.compile(r"[\(（\[【].*?[\)）\]】]")
+_VERSION_RE = re.compile(r"\bv?\d+(?:\.\d+)+")
+_YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
+_NON_WORD_RE = re.compile(r"[^0-9a-z\u4e00-\u9fff]+")
+
+
+def _norm_name(text):
+    """归一化应用/目录名：去括号说明、版本号、年份、空白与标点。
+
+    「爱奇艺 12.0 (x64)」「KuGou 2023」这类 DisplayName 与目录名能落到同一形态上比较。
+    """
     if not text:
+        return ""
+    s = str(text).lower()
+    s = _PAREN_RE.sub(" ", s)
+    s = _VERSION_RE.sub(" ", s)
+    s = _YEAR_RE.sub(" ", s)
+    s = _NON_WORD_RE.sub(" ", s)
+    return " ".join(s.split())
+
+
+def _tokens(text):
+    """可比较的 token：CJK 片段保留 2 字（中文应用名常为 2–4 字），拉丁片段至少 3 字。"""
+    norm = _norm_name(text)
+    if not norm:
         return set()
-    out = set()
-    alnum = "".join(ch.lower() if ch.isalnum() else " " for ch in str(text))
-    parts = [p for p in alnum.split() if len(p) >= 3]
-    out.update(parts)
+    parts = [p for p in norm.split()
+             if len(p) >= 2 and (_CJK_RE.search(p) or len(p) >= 3)]
+    out = set(parts)
     if parts:
         out.add("".join(parts))
     return out
@@ -181,13 +347,39 @@ def installed_tokens(apps):
     tokens = set()
     for info in apps.values():
         tokens |= _tokens(info.get("display"))
-        tokens |= _tokens(Path(str(info.get("installLocation"))).name if info.get("installLocation") else "")
+        loc = info.get("installLocation")
+        if loc:
+            base = Path(str(loc)).name
+            tokens |= _tokens(base)
+            norm = _norm_name(base)
+            if norm:
+                tokens.add(norm)
     return tokens
 
 
 def dir_name_matches_installed(name, tokens):
-    toks = _tokens(name)
-    return bool(toks & tokens)
+    """目录名是否像某个已安装程序（宁多判已安装，不可把在用数据当残留）。
+
+    依次尝试：归一化全名相等 → token 交集 → DisplayName/目录名互相包含。
+    """
+    norm = _norm_name(name)
+    if not norm:
+        return False
+    if norm in tokens:
+        return True
+    if _tokens(name) & tokens:
+        return True
+    short_ok = _CJK_RE.search(norm) and len(norm) >= 2 or len(norm) >= 3
+    if not short_ok:
+        return False
+    for token in tokens:
+        if not token:
+            continue
+        if len(token) < 2:
+            continue
+        if token in norm or norm in token:
+            return True
+    return False
 
 
 def _child_dirs(path):
@@ -225,8 +417,6 @@ def cache_specs():
         add(local / "pnpm" / "store", "pnpm store")
         add(local / "pip" / "Cache", "pip 缓存")
         add(local / "Yarn" / "Cache", "Yarn 缓存")
-        add(local / "Google" / "Chrome" / "User Data" / "Default" / "Cache", "Chrome 缓存")
-        add(local / "Microsoft" / "Edge" / "User Data" / "Default" / "Cache", "Edge 缓存")
     if temp:
         add(temp, "临时文件", cleanable=False,
             advice="程序运行中持续使用；建议用「磁盘清理」处理")
@@ -235,10 +425,68 @@ def cache_specs():
         advice="需要管理员权限；建议用「磁盘清理」处理")
     add(Path("C:/Windows/SoftwareDistribution/Download"), "Windows 更新缓存",
         safe=False, system=True, admin=True)
-    # Firefox 多 profile
-    if roaring := env_path("APPDATA"):
-        for prof in _child_dirs(roaring / "Mozilla" / "Firefox" / "Profiles"):
-            add(prof / "cache2", "Firefox 缓存")
+    return specs
+
+
+def parse_tasklist(text):
+    """解析 tasklist /FO CSV /NH 输出为 exe 名小写集合。"""
+    names = set()
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith('"'):
+            continue
+        end = line.find('"', 1)
+        if end > 1:
+            names.add(line[1:end].lower())
+    return names
+
+
+def running_process_names():
+    """进程快照；失败返回空集合（按未运行处理，不阻断扫描）。"""
+    try:
+        out = subprocess.run(["tasklist", "/FO", "CSV", "/NH"], capture_output=True,
+                             text=True, timeout=30, errors="replace").stdout
+    except Exception:
+        return set()
+    return parse_tasklist(out)
+
+
+BROWSER_EXE_HINTS = (("Chrome", "chrome.exe"), ("Edge", "msedge.exe"), ("Firefox", "firefox.exe"))
+
+
+def browser_exe(name):
+    for prefix, exe in BROWSER_EXE_HINTS:
+        if name.startswith(prefix):
+            return exe
+    return ""
+
+
+def browser_specs():
+    """浏览器缓存（按浏览器/profile 细分；只统计 Cache 目录，不碰书签/密码/历史）。
+
+    与 macOS 报告同一契约：{name, path}，由 scan() 补 kb/running。
+    """
+    local = env_path("LOCALAPPDATA")
+    roaming = env_path("APPDATA")
+    specs = []
+
+    def add(name, p):
+        if p and Path(p).exists():
+            specs.append({"name": name, "path": str(Path(p))})
+
+    def chromium(label, user_data):
+        for prof in _child_dirs(user_data):
+            if prof.name != "Default" and not prof.name.lower().startswith("profile"):
+                continue
+            suffix = "" if prof.name == "Default" else f"（{prof.name}）"
+            add(f"{label}{suffix}", prof / "Cache")
+
+    if local:
+        chromium("Chrome", local / "Google" / "Chrome" / "User Data")
+        chromium("Edge", local / "Microsoft" / "Edge" / "User Data")
+    if roaming:
+        for prof in _child_dirs(roaming / "Mozilla" / "Firefox" / "Profiles"):
+            add("Firefox", prof / "cache2")
     return specs
 
 
@@ -310,17 +558,19 @@ def scan(args):
     programdata = env_path("PROGRAMDATA") or Path("C:/ProgramData")
     deadline = t0 + SCAN_BUDGET_SEC
     admin = is_admin()
-    disk = shutil.disk_usage("C:/")
+    system_drive = os.environ.get("SystemDrive", "C:")
+    disk = shutil.disk_usage(system_drive + "/")
     r = {
         "version": VERSION, "platform": PLATFORM,
         "generatedAt": time.strftime("%Y-%m-%d %H:%M:%S"),
         "host": os.environ.get("COMPUTERNAME", "windows"),
         "home": str(home),
-        "disk": {"total": disk.total, "used": disk.used, "free": disk.free},
+        "disk": {"total": disk.total, "used": disk.used, "free": disk.free, "drive": system_drive},
         "access": {"admin": admin, "detail": "管理员" if admin else "普通用户"},
         "installedCount": 0,
-        "caches": [], "leftovers": [], "devCaches": [], "cloud": [], "appCaches": [],
-        "bigFiles": [], "trashKb": None,
+        "caches": [], "leftoverGroups": [], "devCaches": [], "cloudStorage": [],
+        "browsers": [], "appCaches": [],
+        "bigFiles": [], "trashKb": None, "bigFilesTop": args.top,
         "scope": f"{local}、{roaming}、{programdata}、Temp、浏览器缓存、开发缓存、云盘、"
                  f"{home}（不含 AppData 的大文件）",
         "truncated": False,
@@ -339,7 +589,7 @@ def scan(args):
         return True
 
     cloud = cloud_roots()
-    r["cloud"] = [{"path": c, "kb": size_of(c, min(deadline, time.time() + 20))[0] // 1024} for c in cloud]
+    r["cloudStorage"] = [{"path": c, "kb": size_of(c, min(deadline, time.time() + 20))[0] // 1024} for c in cloud]
 
     specs = cache_specs()
     seen = set()
@@ -361,12 +611,25 @@ def scan(args):
         r["truncated"] |= trunc
         r["devCaches"].append({**spec, "kb": kb // 1024})
 
-    # 已卸载 App 数据候选（LOCAL/ROAMING/PROGRAMDATA 顶层目录）
+    for spec in browser_specs():
+        if not fresh(spec["path"]):
+            continue
+        seen.add(spec["path"])
+        kb, trunc = size_of(spec["path"], min(deadline, time.time() + 20))
+        r["truncated"] |= trunc
+        r["browsers"].append({**spec, "kb": kb // 1024,
+                              "running": bool(proc_names) and browser_exe(spec["name"]) in proc_names})
+    r["browsers"].sort(key=lambda x: -x["kb"])
+
+    # 已卸载 App 数据候选（LOCAL/ROAMING/PROGRAMDATA 顶层目录）。
+    # 与 macOS 报告同一契约：单路径 leftoverGroups，bucket 由 classify_leftover 判定。
     def candidate_roots():
         yield local, SYSTEM_LOCAL
         yield roaming, SYSTEM_ROAMING
         yield programdata, SYSTEM_PROGRAMDATA
 
+    leftover_splits = {}
+    proc_names = running_process_names()
     for root, skip in candidate_roots():
         if not root or not Path(root).is_dir():
             continue
@@ -385,8 +648,23 @@ def scan(args):
                 continue
             if not fresh(d):
                 continue
-            r["leftovers"].append({"name": name, "path": str(d), "kb": kb // 1024,
-                                   "why": "未匹配到已安装程序；可能含用户数据"})
+            bucket, why = classify_leftover(name, kb // 1024)
+            r["leftoverGroups"].append({"baseId": name, "name": name, "kb": kb // 1024,
+                                        "count": 1, "bucket": bucket, "why": why,
+                                        "paths": [str(d)], "bundleIds": []})
+            # confirm 残留里的可再生缓存子目录单独成 safe 组，其余数据保持只读；
+            # 未安装判定不可靠（installed_apps 为空）、聊天类、运行中的一律不拆。
+            if bucket == "confirm" and should_split_leftover(name, apps, proc_names):
+                split_paths = cache_subdirs(d, deadline=min(deadline, time.time() + 3))
+                kept, split_kb = [], 0
+                for sp in split_paths:
+                    skb, strunc = size_of(sp, min(deadline, time.time() + 8))
+                    r["truncated"] |= strunc
+                    if skb >= 1024 * 1024:
+                        kept.append(sp)
+                        split_kb += skb // 1024
+                if kept and split_kb >= 1024:
+                    leftover_splits[str(d)] = {"kb": split_kb, "paths": kept}
 
     # UWP 包数据（单独列为需确认）
     packages = local / "Packages"
@@ -395,20 +673,33 @@ def scan(args):
             kb, trunc = size_of(d, min(deadline, time.time() + 15))
             r["truncated"] |= trunc
             if kb >= args.min_leftover_mb * 1024 * 1024 and fresh(d):
-                r["leftovers"].append({"name": f"UWP: {d.name}", "path": str(d), "kb": kb // 1024,
-                                       "why": "商店应用数据；删除后应用将被重置且数据丢失"})
+                r["leftoverGroups"].append({"baseId": d.name, "name": f"UWP: {d.name}", "kb": kb // 1024,
+                                            "count": 1, "bucket": "confirm",
+                                            "why": "商店应用数据；删除后应用将被重置且数据丢失",
+                                            "paths": [str(d)], "bundleIds": []})
 
-    r["leftovers"].sort(key=lambda x: -x["kb"])
+    apply_leftover_cache_split(r["leftoverGroups"], leftover_splits)
+    r["leftoverGroups"].sort(key=lambda x: -x["kb"])
     if not args.quick:
-        big, big_trunc = big_files(home, args.min_mb, cloud, deadline=deadline)
+        big, big_trunc = big_files(home, args.min_mb, cloud, top=args.top, deadline=deadline)
         r["truncated"] |= big_trunc
         r["bigFiles"] = [{"path": b["path"], "kb": b["bytes"] // 1024, "mtime": b["mtime"]}
                          for b in big]
     r["devPaths"] = sorted(dev_paths)
     r["elapsed"] = round(time.time() - t0, 1)
-    safe_kb = sum(c["kb"] for c in r["caches"] if c["safe"] and not c["system"] and c.get("cleanable", True))
-    dev_kb = sum(d["kb"] for d in r["devCaches"])
-    r["estimate"] = {"safeKb": safe_kb, "devKb": dev_kb, "totalKb": safe_kb + dev_kb}
+    # 与 macOS estimate_of 同契约：safe/confirm 按 leftoverGroups 分档，
+    # caches 与 devCaches 重叠（npm/pnpm/pip 两侧都列）按路径取 min 去重。
+    cache_map = {os.path.normcase(c["path"]): c["kb"] for c in r["caches"]
+                 if c["safe"] and not c["system"] and c.get("cleanable", True)}
+    dev_map = {os.path.normcase(d["path"]): d["kb"] for d in r["devCaches"]}
+    overlap_kb = sum(min(cache_map[p], dev_map[p]) for p in set(cache_map) & set(dev_map))
+    cache_kb = sum(cache_map.values()) - overlap_kb
+    dev_kb = sum(dev_map.values())
+    safe_kb = sum(g["kb"] for g in r["leftoverGroups"] if g["bucket"] == "safe")
+    confirm_kb = sum(g["kb"] for g in r["leftoverGroups"] if g["bucket"] != "safe")
+    r["estimate"] = {"safeKb": safe_kb, "confirmKb": confirm_kb,
+                     "cacheKb": cache_kb, "devKb": dev_kb, "overlapKb": overlap_kb,
+                     "totalKb": safe_kb + cache_kb + dev_kb}
     return r
 
 
@@ -422,7 +713,7 @@ def render(r, args):
     a(f"- 机器：{r['host'] if not args.redact else '***'}")
     a(f"- 权限：{r['access']['detail']}（清理 ProgramData / Windows 目录需要管理员）")
     a(f"- 已安装程序（注册表）：{r['installedCount']} 个")
-    a(f"- 系统盘 C: 共 {r['disk']['total']/1e9:.0f} GB，已用 {r['disk']['used']/1e9:.0f} GB，"
+    a(f"- 系统盘 {r['disk'].get('drive', 'C:')} 共 {r['disk']['total']/1e9:.0f} GB，已用 {r['disk']['used']/1e9:.0f} GB，"
       f"可用 **{r['disk']['free']/1e9:.0f} GB**")
     a(f"- 扫描耗时：{r['elapsed']}s" + ("（快速模式：未扫描大文件）" if args.quick else ""))
     a(f"- 扫描范围：{r['scope']}")
@@ -445,21 +736,27 @@ def render(r, args):
 
     table("一、推荐清理（临时文件/缓存）",
           [{"path": c["path"], "kb": c["kb"], "note": f"{c['label']}；{c['advice']}"}
-           for c in r["caches"] if c["safe"] and not c["system"] and c.get("cleanable", True)])
-    table("二、需确认（应用数据 / 可能的卸载残留 / UWP）",
-          [{"path": l["path"], "kb": l["kb"], "note": l["why"]} for l in r["leftovers"]])
-    table("三、开发缓存（可再生）",
+           for c in r["caches"] if c["safe"] and not c["system"] and c.get("cleanable", True)]
+          + [{"path": b["path"], "kb": b["kb"], "note": f"{b['name']} 浏览器缓存，可重建（不碰书签/密码）"}
+             for b in r.get("browsers", [])])
+    table("二、已卸载残留（推荐清理）",
+          [{"path": g["paths"][0], "kb": g["kb"], "note": f"{g['name']}；{g['why']}"}
+           for g in r["leftoverGroups"] if g["bucket"] == "safe"])
+    table("三、需确认（应用数据 / 可能的卸载残留 / UWP）",
+          [{"path": g["paths"][0], "kb": g["kb"], "note": f"{g['name']}；{g['why']}"}
+           for g in r["leftoverGroups"] if g["bucket"] != "safe"])
+    table("四、开发缓存（可再生）",
           [{"path": d["path"], "kb": d["kb"], "note": d["advice"]} for d in r["devCaches"]])
-    table("四、云盘目录（不建议清理）",
+    table("五、云盘目录（不建议清理）",
           [{"path": c["path"], "kb": c["kb"], "note": "云盘同步目录；删除占位文件会删除云端文件"}
-           for c in r["cloud"]])
-    table(f"五、大文件（> {args.min_mb} MB，个人文件请自行判断）",
+           for c in r["cloudStorage"]])
+    table(f"六、大文件（> {args.min_mb} MB，个人文件请自行判断）",
           [{"path": b["path"], "kb": b["kb"], "note": "个人文件，请自行判断"} for b in r["bigFiles"]])
-    table("六、系统缓存与暂不可清理项（不建议清理）",
+    table("七、系统缓存与暂不可清理项（不建议清理）",
           [{"path": c["path"], "kb": c["kb"], "note": f"{c['label']}；{c['advice']}"}
            for c in r["caches"] if c["system"] or not c.get("cleanable", True)])
 
-    a("## 七、不建议清理")
+    a("## 八、不建议清理")
     a("")
     a("- `C:\\Windows\\WinSxS`、`C:\\Windows\\System32`、驱动仓库")
     a("- `pagefile.sys` / `hiberfil.sys` / `System Volume Information`")
@@ -471,16 +768,22 @@ def render(r, args):
     a("- 浏览器配置目录（书签/密码/登录态）")
     a("")
 
-    safe_kb = sum(c["kb"] for c in r["caches"] if c["safe"] and not c["system"] and c.get("cleanable", True))
-    dev_kb = sum(d["kb"] for d in r["devCaches"])
-    a("## 八、预计可释放")
+    est = r.get("estimate") or {}
+    safe_kb = est.get("safeKb", 0)
+    cache_kb = est.get("cacheKb", 0)
+    dev_kb = est.get("devKb", 0)
+    a("## 九、预计可释放")
     a("")
-    a(f"- 推荐清理（缓存/临时文件）：**{human(safe_kb)}**")
+    a(f"- 推荐清理（缓存/临时文件，已去重）：**{human(cache_kb)}**")
+    if safe_kb:
+        a(f"- 已卸载残留（推荐清理）：**{human(safe_kb)}**")
     a(f"- 开发缓存：**{human(dev_kb)}**")
-    a(f"- 合计约：**{human(safe_kb + dev_kb)}**（不含需确认项）")
+    a(f"- 合计约：**{human(safe_kb + cache_kb + dev_kb)}**（不含需确认项）")
+    if est.get("overlapKb"):
+        a(f"- 已避免重复计算：{human(est['overlapKb'])}（同时出现在缓存与开发缓存中）")
     a("")
 
-    a("## 九、建议命令（PowerShell，只生成，不执行）")
+    a("## 十、建议命令（PowerShell，只生成，不执行）")
     a("")
     a("```powershell")
     a('# 缓存/临时：移到隔离区，确认后再删除（比直接删安全）')
@@ -492,8 +795,13 @@ def render(r, args):
             continue
         a(f"Move-Item -LiteralPath '{c['path']}' -Destination $q")
         emitted += 1
+    for g in r["leftoverGroups"]:
+        if g["bucket"] != "safe" or g["kb"] < 100 * 1024:
+            continue
+        a(f"Move-Item -LiteralPath '{g['paths'][0]}' -Destination $q")
+        emitted += 1
     if emitted == 0:
-        a("# 本次没有 ≥100 MB 的推荐清理缓存，无需移动")
+        a("# 本次没有 ≥100 MB 的推荐清理项，无需移动")
     a("```")
     a("")
     a("> 需确认项（App 数据/UWP）不生成命令；删除前请先退出对应程序。")
@@ -548,7 +856,8 @@ def self_test():
         r = {"version": VERSION, "platform": PLATFORM, "generatedAt": "x", "host": "h",
              "home": str(tmp), "access": {"admin": False, "detail": "普通用户"},
              "installedCount": len(apps), "disk": {"total": 1, "used": 1, "free": 1},
-             "caches": [], "leftovers": [], "devCaches": [], "cloud": [], "appCaches": [],
+             "caches": [], "leftoverGroups": [], "devCaches": [], "cloudStorage": [],
+             "browsers": [], "appCaches": [],
              "bigFiles": [], "truncated": False, "elapsed": 0.1, "scope": "x"}
         ns = argparse.Namespace(redact=False, quick=True, min_mb=300, min_leftover_mb=10)
         md = render(r, ns)

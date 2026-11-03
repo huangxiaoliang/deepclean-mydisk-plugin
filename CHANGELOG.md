@@ -1,5 +1,14 @@
 # deepclean-mydisk 插件变更
 
+## 未发布
+- AI 只读解释入口：首页「让 AI 解读这次体检」、清理页逐项「问 AI」、清理前「复核这 n 项」、历史「让 AI 分析趋势」、大文件「这是什么」（客户端拼接提示词注入当前会话，可降级为复制提示词）
+- 新增只读模型工具 `disk_inspect`（类型/大小/文件数/修改时间/报告分档/对应 App 是否安装），并给未收录的应用残留加「未收录」标记
+- 历史页新增「趋势与复清」：可用空间趋势、累计清理量、清了又长回来的条目；清理审计新增 `moved[].kb/category` 标注（旧日志无此字段，仅用于展示、不参与放行）
+- AI 提示词口径修正：补「按分类合计」「各档合计与未列出条目汇总」「范围说明（报告不等于整盘占用）」，去掉与条目风险档冲突的 `estimate.safeKb` 措辞，并禁止把扫描器 advice 里的命令文本带进提示词
+- 已卸载残留细粒度拆分：`scan.py` / `platforms/windows.py` 在 confirm 残留容器里识别可再生缓存子目录（Caches/tmp/Code Cache/GPUCache 等，深度 ≤4、不跟随链接），拆成独立 safe 组（`cachePart: true`，客户端显示「App · 缓存」），原组保持 confirm 并扣减大小；聊天类 / 系统 App / 运行中的残留不拆，小于 1 MB 不单列
+- 开发缓存影响文案细分：pnpm store 与 npm 一样标注「安装依赖时可能重新下载」；electron-builder / node-gyp / next-swc / CocoaPods / SwiftPM / DeviceSupport 各自标注重新下载时机；条目级「问 AI」可调用只读 `disk_inspect` 补充文件数/修改时间
+- 测试 123（121 pass / 2 skip）
+
 ## 0.11.0
 - 在用 App 缓存清理：扫描器新增 `appCaches`（仅 Caches/tmp/Code Cache/GPUCache 等可再生目录，跳过聊天容器与个人目录，运行中 App 不进入允许集合）；清理页新增「应用缓存」分类，向导推荐项包含可清理的 App 缓存
 - 真实释放估算：新增 `POST /api/reclaim`，区分逻辑大小与分配大小（`st_blocks`），统计 APFS 本地快照；清理/向导确认框显示「预计实际释放 X（逻辑 Y）」，完成后显示「可用空间 A → B（+C）」

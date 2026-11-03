@@ -11,8 +11,9 @@ process.env.DEEPCLEAN_TRASH_DIR = path.join(root, 'trash')
 const plugin = await import('../lib/index.js')
 
 const routes = []
+const tools = []
 const ctx = {
-  tools: { register() {} },
+  tools: { register(tool) { tools.push(tool) } },
   effect() {},
   inject(deps, cb) {
     if (deps.includes('webServer')) cb({ webServer: { register(r) { routes.push(r); return () => {} } } })
@@ -20,7 +21,11 @@ const ctx = {
 }
 plugin.apply(ctx)
 
-const find = (p) => routes.find((r) => r.path.endsWith(p))
+function find(p) {
+  // 先精确匹配，避免 /purge 命中 /quarantine/purge（路由表本身是 exact 匹配）。
+  const exact = routes.find((r) => r.path === '/dsh-deepclean/api' + p)
+  return exact || routes.find((r) => r.path.endsWith(p))
+}
 function mockRes() {
   return { code: 0, body: '', writeHead(c) { this.code = c }, end(b) { this.body = b }, destroy() {} }
 }
@@ -40,7 +45,7 @@ async function call(p, method = 'GET', body) {
 }
 
 test('host registers expected routes', () => {
-  for (const p of ['/overview', '/disk', '/scan', '/scan/cancel', '/clean', '/undo', '/history', '/restore', '/whitelist', '/photos', '/photos/scan', '/thumb', '/move', '/move/cancel', '/tree', '/reveal', '/state', '/permissions']) {
+  for (const p of ['/overview', '/disk', '/scan', '/scan/cancel', '/clean', '/undo', '/history', '/restore', '/whitelist', '/photos', '/photos/scan', '/thumb', '/move', '/move/cancel', '/tree', '/reveal', '/state', '/permissions', '/quarantine', '/quarantine/purge']) {
     assert.ok(find(p), `missing route ${p}`)
   }
 })
@@ -88,15 +93,52 @@ test('allowed paths exclude admin, non-cleanable and system caches', () => {
       { path: 'C:\\Windows\\Temp', kb: 1, admin: true },
       { path: 'C:\\Users\\x\\AppData\\Local\\Temp', kb: 1, cleanable: false },
       { path: '/tmp/sys-cache', kb: 1, system: true },
+      { path: '/tmp/running-cache', kb: 1, running: true },
     ],
     devCaches: [{ path: '/tmp/dev-ok', kb: 1 }, { path: '/tmp/dev-no', kb: 1, cleanable: false }],
+    leftoverGroups: [
+      { baseId: 'x.cache', bucket: 'safe', paths: ['/tmp/split-cache'], kb: 10, cachePart: true },
+      { baseId: 'x', bucket: 'confirm', paths: ['/tmp/confirm-container'], kb: 20 },
+    ],
+    browsers: [
+      { name: 'Chrome', path: '/tmp/browser-running', kb: 1, running: true },
+      { name: 'Firefox', path: '/tmp/browser-idle', kb: 1, running: false },
+    ],
   }
   const allowed = plugin.allowedPaths(report)
   assert.ok(allowed.has('/tmp/ok-cache'))
   assert.ok(allowed.has('/tmp/dev-ok'))
-  for (const blocked of ['C:\\Windows\\Temp', 'C:\\Users\\x\\AppData\\Local\\Temp', '/tmp/sys-cache', '/tmp/dev-no']) {
+  assert.ok(allowed.has('/tmp/browser-idle'), 'idle browser cache stays cleanable')
+  assert.ok(allowed.has('/tmp/split-cache'), 'split cache subfolders of an uninstalled app are cleanable')
+  assert.ok(!allowed.has('/tmp/confirm-container'), 'the rest of a confirm leftover stays out of the allow-set')
+  for (const blocked of ['C:\\Windows\\Temp', 'C:\\Users\\x\\AppData\\Local\\Temp', '/tmp/sys-cache', '/tmp/dev-no', '/tmp/running-cache', '/tmp/browser-running']) {
     assert.ok(!allowed.has(blocked), `${blocked} must stay out of the clean allow-set`)
   }
+})
+
+test('pruneReport drops cleaned rows and keeps partially cleaned groups', () => {
+  const report = {
+    leftoverGroups: [
+      { baseId: 'a', paths: ['/x/a1'], kb: 10, bucket: 'safe' },
+      { baseId: 'b', paths: ['/x/b1', '/x/b2'], kb: 20, bucket: 'safe' },
+    ],
+    caches: [{ path: '/x/c1', kb: 1 }, { path: '/x/c2', kb: 2 }],
+    devCaches: [{ path: '/x/d1', kb: 1 }],
+    browsers: [{ name: 'Chrome', path: '/x/br', kb: 1 }],
+    appCaches: [{ baseId: 'app', paths: ['/x/ac1', '/x/ac2'], kb: 5 }],
+    special: [{ app: '微信', categories: [{ name: '缓存', paths: ['/x/s1'], cleanable: true }] }],
+    estimate: { safeKb: 30, cacheKb: 3, devKb: 1, totalKb: 34 },
+  }
+  const pruned = plugin.pruneReport(report, new Set(['/x/a1', '/x/b1', '/x/c1', '/x/br', '/x/ac1', '/x/s1']))
+  assert.deepEqual(pruned.leftoverGroups.map((g) => g.baseId), ['b'], 'fully cleaned group removed')
+  assert.deepEqual(pruned.leftoverGroups[0].paths, ['/x/b2'], 'partially cleaned group keeps remaining paths')
+  assert.deepEqual(pruned.caches.map((c) => c.path), ['/x/c2'])
+  assert.equal(pruned.devCaches.length, 1)
+  assert.equal(pruned.browsers.length, 0)
+  assert.deepEqual(pruned.appCaches[0].paths, ['/x/ac2'])
+  assert.equal(pruned.special.length, 0, 'special app with no categories left is removed')
+  assert.equal(pruned.estimate.totalKb, 34, 'estimate stays the scan-time snapshot')
+  assert.deepEqual(plugin.pruneReport(report, new Set()).leftoverGroups.length, 2, 'empty set is a no-op')
 })
 
 test('move refuses without a fresh scan', async () => {
@@ -125,10 +167,31 @@ test('tree rejects paths outside home', { skip: process.platform === 'win32' }, 
   assert.equal(res.code, 400)
 })
 
-test('permissions endpoint responds', { skip: process.platform === 'win32' }, async () => {
+test('permissions endpoint responds with a structured status', { skip: process.platform === 'win32' }, async () => {
   const { code, body } = await call('/permissions')
   assert.equal(code, 200)
   assert.match(body.text, /权限检查/)
+  assert.ok(['ok', 'denied'].includes(body.status), 'status is derived from the scanner exit code')
+})
+
+test('open-privacy-settings is POST-only, darwin-only and dry-runnable', async () => {
+  const route = find('/open-privacy-settings')
+  assert.ok(route, 'missing route /open-privacy-settings')
+  const getRes = mockRes()
+  await route.handler(mockReq('GET', '/dsh-deepclean/api/open-privacy-settings'), getRes)
+  assert.equal(getRes.code, 405)
+  process.env.DEEPCLEAN_NO_OPEN = '1'
+  try {
+    const { code, body } = await call('/open-privacy-settings', 'POST', '{}')
+    if (process.platform === 'darwin') {
+      assert.equal(code, 200)
+      assert.equal(body.ok, true)
+    } else {
+      assert.equal(code, 400)
+    }
+  } finally {
+    delete process.env.DEEPCLEAN_NO_OPEN
+  }
 })
 
 
@@ -222,10 +285,55 @@ test('directory totals include hidden entries, report metadata and refuse links'
   } finally { if(home===undefined) delete process.env.HOME; else process.env.HOME=home }
 })
 
+test('tree walk seeds the drill-down cache and confirms big files for moving', async () => {
+  const home = process.env.HOME
+  process.env.HOME = root
+  const parent = path.join(root, 'tree-seed')
+  const child = path.join(parent, 'child')
+  fs.mkdirSync(child, { recursive: true })
+  const big = path.join(child, 'big.bin')
+  fs.writeFileSync(big, Buffer.alloc(12 * 1024 * 1024, 1)) // child 12MB ≥ 10MB → 进入 dirs 播种
+  const dest = path.join(root, 'tree-seed-dest')
+  fs.mkdirSync(dest)
+  const getTree = async (p) => {
+    const res = mockRes()
+    await find('/tree').handler(mockReq('GET', '/dsh-deepclean/api/tree?path=' + encodeURIComponent(p)), res)
+    return { code: res.code, body: JSON.parse(res.body || '{}') }
+  }
+  try {
+    const first = await getTree(parent)
+    assert.equal(first.code, 200)
+    assert.ok(!('dirs' in first.body), 'wire response strips the dirs seeding map')
+    assert.ok(first.body.bigFiles.some((f) => f.path === big), 'root walk reports the big file')
+    const drilled = await getTree(child)
+    assert.equal(drilled.code, 200)
+    assert.equal(drilled.body.at, first.body.at, 'drill-down is served from the seeded cache, not a re-walk')
+    assert.ok(drilled.body.children.some((c) => c.path === big))
+
+    // tree 确认的路径可以直接搬家，不要求先有体检报告
+    const unknown = await call('/move', 'POST', JSON.stringify({ paths: [path.join(parent, 'nope.bin')], destination: dest }))
+    assert.equal(unknown.code, 400)
+    const started = await call('/move', 'POST', JSON.stringify({ paths: [big], destination: dest }))
+    assert.equal(started.code, 202, JSON.stringify(started.body))
+    for (let i = 0; i < 50; i++) {
+      const st = await call('/move')
+      if (st.body.move.status !== 'running') break
+      await new Promise((r) => setTimeout(r, 100))
+    }
+    assert.equal(fs.existsSync(big), false)
+    assert.ok(fs.readdirSync(dest).some((n) => n.startsWith('big.bin')))
+  } finally {
+    if (home === undefined) delete process.env.HOME
+    else process.env.HOME = home
+  }
+})
+
 test('history replays legacy restores and refuses a reused destination from an old batch', async () => {
   const folder=path.join(root,'legacy-history')
   fs.mkdirSync(folder)
-  const a=path.join(folder,'A'),b=path.join(folder,'B'),shared=path.join(folder,'old-trash-name')
+  const trashRoot=path.join(process.env.DEEPCLEAN_TRASH_DIR,'deepclean-legacy-history')
+  fs.mkdirSync(trashRoot,{recursive:true})
+  const a=path.join(folder,'A'),b=path.join(folder,'B'),shared=path.join(trashRoot,'old-trash-name')
   fs.writeFileSync(shared,'SECOND')
   const log=path.join(process.env.DSH_HOME,'deepclean-audit.log')
   fs.mkdirSync(path.dirname(log),{recursive:true})
@@ -249,7 +357,9 @@ test('history replays legacy restores and refuses a reused destination from an o
 test('legacy destination reuse without a restore log belongs only to the newest batch', async () => {
   const folder=path.join(root,'legacy-reuse')
   fs.mkdirSync(folder)
-  const to=path.join(folder,'shared'),log=path.join(process.env.DSH_HOME,'deepclean-audit.log')
+  const trashRoot=path.join(process.env.DEEPCLEAN_TRASH_DIR,'deepclean-legacy-reuse')
+  fs.mkdirSync(trashRoot,{recursive:true})
+  const to=path.join(trashRoot,'shared'),log=path.join(process.env.DSH_HOME,'deepclean-audit.log')
   fs.writeFileSync(to,'NEW')
   for(const [batchId,from] of [['reuse-old',path.join(folder,'old')],['reuse-new',path.join(folder,'new')]]) {
     fs.appendFileSync(log,JSON.stringify({action:'clean',batchId,moved:[{from,to}]})+'\n')
@@ -262,7 +372,9 @@ test('legacy destination reuse without a restore log belongs only to the newest 
 test('partial legacy restores retain only the failed item for retry', async () => {
   const folder=path.join(root,'partial-history')
   fs.mkdirSync(folder)
-  const fromA=path.join(folder,'A'),fromB=path.join(folder,'B'),toA=path.join(folder,'trash-A'),toB=path.join(folder,'trash-B')
+  const trashRoot=path.join(process.env.DEEPCLEAN_TRASH_DIR,'deepclean-partial-history')
+  fs.mkdirSync(trashRoot,{recursive:true})
+  const fromA=path.join(folder,'A'),fromB=path.join(folder,'B'),toA=path.join(trashRoot,'trash-A'),toB=path.join(trashRoot,'trash-B')
   fs.writeFileSync(toA,'SOMEONE ELSE');fs.writeFileSync(toB,'RETRY')
   const entries=[{action:'clean',batchId:'partial',moved:[{from:fromA,to:toA},{from:fromB,to:toB}]},{action:'restore',batchId:'partial',results:[{path:fromA,ok:true},{path:fromB,ok:false}]}]
   fs.appendFileSync(path.join(process.env.DSH_HOME,'deepclean-audit.log'),entries.map(e=>JSON.stringify(e)).join('\n')+'\n')
@@ -272,6 +384,33 @@ test('partial legacy restores retain only the failed item for retry', async () =
   assert.deepEqual(restored.body.results.map(r=>r.path),[fromB])
   assert.equal(fs.readFileSync(fromB,'utf8'),'RETRY')
   assert.equal(fs.readFileSync(toA,'utf8'),'SOMEONE ELSE')
+})
+
+test('restore reports a conflict honestly and can restore the batch as a copy', async () => {
+  const folder=path.join(root,'restore-conflict')
+  fs.mkdirSync(folder,{recursive:true})
+  const trashRoot=path.join(process.env.DEEPCLEAN_TRASH_DIR,'deepclean-restore-conflict')
+  fs.mkdirSync(trashRoot,{recursive:true})
+  const from=path.join(folder,'keep.txt'),to=path.join(trashRoot,'keep.txt')
+  fs.writeFileSync(from,'NEWER')                   // 原位置已有同名文件
+  fs.writeFileSync(to,'OLDER')                     // 隔离区里仍有原文件
+  const log=path.join(process.env.DSH_HOME,'deepclean-audit.log')
+  fs.mkdirSync(path.dirname(log),{recursive:true})
+  fs.appendFileSync(log,JSON.stringify({action:'clean',batchId:'conflict',moved:[{from,to}],results:[]})+'\n')
+  const failed=await call('/restore','POST',JSON.stringify({batchId:'conflict'}))
+  assert.equal(failed.code,200)
+  assert.equal(failed.body.summary.failed,1)
+  assert.equal(failed.body.summary.codes.exists,1)
+  assert.equal(failed.body.results[0].code,'exists')
+  assert.equal(fs.readFileSync(from,'utf8'),'NEWER','must not overwrite the existing file')
+  assert.equal(fs.readFileSync(to,'utf8'),'OLDER','trash entry stays for a retry')
+  const history=(await call('/history')).body.cleans.find(b=>b.batchId==='conflict')
+  assert.equal(history.lastRestore.failed,1,'history records the failed restore')
+  const copy=await call('/restore','POST',JSON.stringify({batchId:'conflict',onConflict:'rename'}))
+  assert.equal(copy.body.summary.ok,1)
+  assert.equal(copy.body.results[0].renamed,true)
+  assert.equal(fs.readFileSync(copy.body.results[0].restoredTo,'utf8'),'OLDER')
+  assert.equal(fs.readFileSync(from,'utf8'),'NEWER')
 })
 
 test('reclaim estimates logical and allocated bytes', async () => {
@@ -297,4 +436,158 @@ test('purge permanently deletes a batch moved into the quarantine trash', async 
   assert.equal(code, 200)
   assert.equal(body.purged, 1)
   assert.equal(fs.existsSync(item), false)
+})
+
+
+test('host registers the read-only inspection tool', () => {
+  const names = tools.map((t) => t.name).sort()
+  assert.deepEqual(names, ['disk_audit', 'disk_check_permissions', 'disk_inspect', 'disk_self_test'])
+})
+
+test('disk_inspect reports path facts without touching files', async () => {
+  const home = process.env.HOME
+  process.env.HOME = root
+  const folder = path.join(root, 'inspect-fixture')
+  fs.mkdirSync(folder, { recursive: true })
+  const file = path.join(folder, 'blob.bin')
+  fs.writeFileSync(file, Buffer.alloc(4096, 7))
+  try {
+    const tool = tools.find((t) => t.name === 'disk_inspect')
+    const text = await tool.execute({ path: folder })
+    assert.match(text, /只读路径检查/)
+    assert.match(text, /类型：目录/)
+    assert.match(text, /blob\.bin 4 KB/)
+    assert.match(text, /未修改、未移动任何文件/)
+    assert.equal(fs.existsSync(file), true, 'inspection must not move or delete files')
+    const missing = await tool.execute({ path: path.join(root, 'inspect-missing') })
+    assert.match(missing, /路径不存在/)
+    const empty = await tool.execute({})
+    assert.match(empty, /需要绝对路径/)
+    if (process.platform !== 'win32') {
+      const link = path.join(root, 'inspect-link')
+      fs.symlinkSync(folder, link)
+      const sym = await tool.execute({ path: link })
+      assert.match(sym, /符号链接（未跟随）/)
+      assert.equal(fs.existsSync(folder), true)
+    }
+  } finally {
+    if (home === undefined) delete process.env.HOME
+    else process.env.HOME = home
+  }
+})
+
+test('cleanAnnotations records report sizes but never widens the allow-set', () => {
+  const report = {
+    leftoverGroups: [{ baseId: 'a', kb: 100, paths: ['/x/a1', '/x/a2'], bucket: 'safe' }],
+    caches: [{ path: '/x/c1', kb: 5 }],
+    devCaches: [{ path: '/x/d1', kb: 7 }],
+    browsers: [{ name: 'Chrome', path: '/x/b1', kb: 9 }],
+    appCaches: [{ baseId: 'p', kb: 11, paths: ['/x/p1', '/x/p2'] }],
+    special: [{ app: '微信', categories: [{ name: '缓存', kb: 13, paths: ['/x/s1'] }] }],
+  }
+  const map = plugin.cleanAnnotations(report, ['/x/a2', '/x/c1', '/x/d1', '/x/b1', '/x/p2', '/x/s1', '/not/selected'])
+  assert.deepEqual([...map.keys()].sort(), ['/x/a2', '/x/b1', '/x/c1', '/x/d1', '/x/p2', '/x/s1'])
+  assert.equal(map.get('/x/a2').kb, 100, 'a grouped row is attributed once, to the selected path')
+  assert.equal(map.get('/x/a2').category, 'leftover')
+  assert.equal(map.get('/x/c1').kb, 5)
+  assert.equal(map.get('/x/s1').kb, 13)
+  assert.equal(plugin.cleanAnnotations(report, []).size, 0)
+  assert.equal(plugin.cleanAnnotations(null, ['/x/c1']).size, 0)
+  // The mapping is audit metadata only: it must not appear in the clean allow-set.
+  const allowed = plugin.allowedPaths({ leftoverGroups: [], caches: [], devCaches: [], browsers: [] })
+  assert.equal(allowed.size, 0)
+})
+
+test('splitBatches: keeps the 200 cap, covers every path in order', () => {
+  const paths = Array.from({ length: 250 }, (_, i) => `/p/${i}`)
+  const parts = plugin.splitBatches(paths)
+  assert.deepEqual(parts.map((p) => p.length), [200, 50])
+  assert.deepEqual(parts.flat(), paths)
+  assert.deepEqual(plugin.splitBatches([], 10), [])
+  assert.deepEqual(plugin.splitBatches(['a'], 10), [['a']])
+  assert.deepEqual(plugin.splitBatches(paths, 0).map((p) => p.length), [200, 50], 'invalid limit falls back to MAX_BATCH')
+})
+
+test('prunePhotoResult: drops moved photos and dissolves groups under two items', () => {
+  const result = {
+    scanned: 6, compared: 6,
+    groups: [
+      { id: 'g1', items: [{ path: '/a', kb: 10 }, { path: '/b', kb: 8 }, { path: '/c', kb: 6 }], totalKb: 24, wastedKb: 14 },
+      { id: 'g2', items: [{ path: '/d', kb: 10 }, { path: '/e', kb: 9 }], totalKb: 19, wastedKb: 9 },
+    ],
+  }
+  const pruned = plugin.prunePhotoResult(result, new Set(['/a', '/e']))
+  assert.equal(pruned.groups.length, 1)
+  assert.equal(pruned.groups[0].id, 'g1')
+  assert.deepEqual(pruned.groups[0].items.map((i) => i.path), ['/b', '/c'])
+  assert.equal(pruned.groups[0].totalKb, 14)
+  assert.equal(pruned.groups[0].wastedKb, 6, 'wasted = total - largest remaining')
+  const untouched = plugin.prunePhotoResult(result, new Set())
+  assert.equal(untouched.groups.length, 2, 'empty set is a no-op')
+})
+
+
+test('quarantine endpoint reports plugin batches and purges them', async () => {
+  plugin.invalidateQuarantine()
+  const batchDir = path.join(process.env.DEEPCLEAN_TRASH_DIR, 'deepclean-quarantine-test')
+  fs.mkdirSync(batchDir, { recursive: true })
+  const item = path.join(batchDir, 'q.bin')
+  fs.writeFileSync(item, Buffer.alloc(2048))
+  const from = path.join(root, 'quarantine-orig.bin')
+  const log = path.join(process.env.DSH_HOME, 'deepclean-audit.log')
+  fs.mkdirSync(path.dirname(log), { recursive: true })
+  fs.appendFileSync(log, JSON.stringify({ action: 'clean', batchId: 'quarantine-test', moved: [{ from, to: item }], results: [] }) + '\n')
+  plugin.invalidateQuarantine()
+  const before = await call('/quarantine')
+  assert.equal(before.code, 200)
+  assert.ok(before.body.kb >= 2)
+  assert.ok(before.body.batches.some((b) => b.batchId === 'quarantine-test'))
+  const overview = await call('/overview')
+  assert.ok(overview.body.quarantine && overview.body.quarantine.root, 'overview exposes quarantine')
+  const purged = await call('/quarantine/purge', 'POST', JSON.stringify({ batchIds: ['quarantine-test'] }))
+  assert.equal(purged.code, 200)
+  assert.equal(purged.body.total.purged, 1)
+  assert.equal(fs.existsSync(item), false)
+  plugin.invalidateQuarantine()
+  const after = await call('/quarantine')
+  assert.ok(!after.body.batches.some((b) => b.batchId === 'quarantine-test'))
+})
+
+
+test('cloud and app-data paths are blocked from moving', () => {
+  const cloud = path.join(root, 'fake-cloud')
+  fs.mkdirSync(cloud, { recursive: true })
+  const prev = process.env.DEEPCLEAN_CLOUD_ROOTS
+  process.env.DEEPCLEAN_CLOUD_ROOTS = JSON.stringify([cloud])
+  try {
+    assert.equal(plugin.isCloudBackedPath(path.join(cloud, 'a.bin')), true)
+    assert.equal(plugin.isCloudBackedPath(path.join(root, 'local.bin')), false)
+    assert.match(plugin.moveBlockReason(path.join(cloud, 'a.bin')), /云盘/)
+    assert.match(plugin.moveBlockReason(path.join(root, 'Pictures', 'Photos Library.photoslibrary', 'originals', 'a.jpg')), /App 数据/)
+    assert.match(plugin.moveBlockReason(path.join(root, 'Library', 'Mail', 'V10', 'a.eml')), /App 数据/)
+    assert.equal(plugin.moveBlockReason(path.join(root, 'Documents', 'movie.mkv')), '')
+  } finally {
+    if (prev === undefined) delete process.env.DEEPCLEAN_CLOUD_ROOTS
+    else process.env.DEEPCLEAN_CLOUD_ROOTS = prev
+  }
+})
+
+
+test('trimUndoneBatch removes restored entries so a retry can finish', () => {
+  const moved = [{ from: '/a' }, { from: '/b' }, { from: '/c' }]
+  const results = [{ path: '/a', ok: true }, { path: '/b', ok: false, code: 'exists' }, { path: '/c', ok: true }]
+  assert.deepEqual(plugin.trimUndoneBatch(moved, results).map((m) => m.from), ['/b'])
+  assert.deepEqual(plugin.trimUndoneBatch([], results), [])
+})
+
+test('state exposes lastBatchIds for split clean batches', async () => {
+  const { code, body } = await call('/state')
+  assert.equal(code, 200)
+  assert.ok(Array.isArray(body.lastBatchIds))
+})
+
+test('quarantine purge requires explicit batchIds or all:true', async () => {
+  const res = await call('/quarantine/purge', 'POST', JSON.stringify({}))
+  assert.equal(res.code, 400)
+  assert.match(res.body.error, /batchIds|all/)
 })

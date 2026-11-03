@@ -38,9 +38,10 @@ try {
   Check "报告含标题" ($md -match "磁盘体检报告")
   Check "无 del/rd 命令建议" (-not ($md -match '(?m)^\s*del\s|^\s*rd\s'))
   Check "含 Move-Item 或无需命令" ($md -match "Move-Item" -or $md -match "未生成 mv")
-  Check "browsers 字段存在" ($null -ne $r.browsers)
-  Check "special 字段存在" ($null -ne $r.special)
+  Check "browsers 字段存在" ($r.PSObject.Properties.Name -contains "browsers")
+  Check "leftoverGroups 字段存在" ($r.PSObject.Properties.Name -contains "leftoverGroups")
   Check "estimate 字段存在" ($null -ne $r.estimate)
+  Check "estimate 含 cacheKb/totalKb" ($r.estimate.PSObject.Properties.Name -contains "cacheKb" -and $r.estimate.PSObject.Properties.Name -contains "totalKb")
   $cloud = @($r.cloudStorage)
   Check "云盘目录单独列出" ($cloud.Count -ge 0)
   $md | Out-File (Join-Path $outDir "copied-report.md") -Encoding UTF8

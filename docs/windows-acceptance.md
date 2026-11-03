@@ -83,7 +83,7 @@ dsh plugin --profile desktop add file:C:\deepclean-mydisk-plugin
 
 - `py` 不存在：用 `python` 替换；或安装 Python 并勾选 py launcher；
 - 企业策略限制 PowerShell 脚本：`powershell -ExecutionPolicy Bypass -File ...`；
-- 无 Windows 机器：可先用 GitHub Actions（仓库已配 windows-latest），但那不是真实用户环境。
+- 无 Windows 机器：使用 [GitHub Actions Windows 自动验收](windows-ci.md)，提供 Windows Server 2022/2025 原生用例、独立测试卷和可下载报告；仍不等于真实用户桌面验收。
 
 
 ## 照片与路径保护修复验收

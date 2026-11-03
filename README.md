@@ -4,7 +4,7 @@ DSH 插件：macOS / Windows 原生侧边栏磁盘空间工具。**只读体检�
 
 > 仓库：https://github.com/huangxiaoliang/deepclean-mydisk-plugin
 > 安装：`dsh plugin --profile desktop add github:huangxiaoliang/deepclean-mydisk-plugin`（或本地 `link:/绝对路径`）
-> 测试：`npm test`（97 个用例；GitHub Actions 矩阵 macOS + Windows）
+> 测试：`npm test`（151 个用例；GitHub Actions 矩阵 macOS + Windows）
 > Windows 真机验收：`docs/windows-acceptance.md` + `scripts/acceptance-windows.ps1`
 > 视觉验收：[design-qa.md](design-qa.md)
 
@@ -15,16 +15,16 @@ DSH 插件：macOS / Windows 原生侧边栏磁盘空间工具。**只读体检�
 - **可用空间**大字 + **总容量 · 已用** + 已用比例条，数据来自宿主 `statfs` 实时快照（毫秒级、只读），**不需要先跑体检**；
 - 每 60 秒、窗口重新获得焦点时经轻量 `GET /api/disk` 刷新；无实时快照时回退到最近一次扫描报告的容量，再没有才显示「正在读取磁盘信息…」；
 - 首次扫描前「建议处理」显示「—」而不是 0，避免误导；
-- 顶部导航常驻，5 个一级入口：**体检 / 空间 / 清理 / 历史 / 设置**。
+- 顶部导航常驻，5 个一级入口：**体检 / 清理 / 空间 / 历史 / 设置**。
 
 ## 界面结构
 
 | 一级入口 | 内容 |
 |---|---|
-| 体检（首页） | 实时容量、开始体检 / 查看清理建议、扫描选项（快速 / 完整 / 权限检查）、扫描进度与取消、体检向导（推荐 → 确认 → 已释放 → 撤销）、最近一次整理 |
-| 空间 | 两个视图：**目录分布**（环形图 + 面包屑 + 明细）与 **大文件**（筛选 + 搬家） |
-| 清理 | 两个视图：**垃圾清理**（7 个内容分类 + 风险筛选 + 选择 + 清理）与 **相似照片**（分组 + 对比 + 去重） |
-| 历史 | 扫描历史（最近 15 条）+ 可恢复的清理批次 |
+| 体检（首页） | 实时容量、开始体检 / 查看清理建议、**让 AI 解读这次体检**、扫描选项（快速 / 完整 / 权限检查）、扫描进度与取消、体检向导（推荐 → 确认 → 已释放 → 撤销）、最近一次整理 |
+| 清理 | 两个视图：**垃圾清理**（7 个内容分类 + 风险筛选 + 选择 + 清理 + 逐项「问 AI」+ 清理前「复核这些项」）与 **相似照片**（分组 + 对比 + 去重） |
+| 空间 | 两个视图：**目录分布**（环形图 + 面包屑 + 明细）与 **大文件**（筛选 + 搬家 + 「这是什么」） |
+| 历史 | **趋势与复清**（可用空间趋势、累计清理、清了又长回来）+ **隔离区/废纸篓占用与永久删除全部** + 扫描历史（最近 15 条）+ 可恢复的清理批次 + 「让 AI 分析趋势」 |
 | 设置 | 安全说明、中英切换、保护名单、权限检查、环境信息 |
 
 ## 功能
@@ -40,29 +40,33 @@ DSH 插件：macOS / Windows 原生侧边栏磁盘空间工具。**只读体检�
 ### 清理
 
 - 按 **8 个内容分类**浏览：全部项目 / 开发缓存 / 浏览器缓存 / 应用残留 / **应用缓存（在用 App）** / 聊天软件缓存 / 其他缓存 / 系统缓存，每类显示容量；扫描中或没有报告时显示「待统计」；
+- **已卸载残留会再细分一次**：容器里的可再生缓存子目录单独列为「{App} · 缓存」可清理项（如腾讯文档 509 MB → 缓存 116 MB 可清 + 数据 394 MB 仍需确认），其余数据保持「需确认」；聊天/系统/运行中的 App 不拆；
 - **应用缓存**只来自已安装 App 容器内的可再生目录（Caches/tmp/Code Cache/GPUCache 等），跳过微信/企微/QQ 与个人目录；运行中的 App 标记需确认、不进入清理允许集合；
-- **风险标签独立**：推荐处理 / 可选处理 / 需确认 / 受保护；受保护（白名单）与只读项不显示复选框，不能选中，也不计入「建议处理」；
+- **风险标签独立**：推荐清理 / 可选清理 / 需确认 / 受保护；受保护（白名单）与只读项不显示复选框，不能选中，也不计入「预计可释放」；列表固定按「可勾选（推荐→可选）→ 需确认 → 受保护」分组，组内再按大小/名称排序；
 - 支持名称/路径**搜索**、按大小或名称**排序**、风险**筛选**、跨分类勾选、表头三态全选、「选择推荐项」；
 - 行内**详情**展开：处理影响 / 怎么恢复 / 完整路径；同时提供复制命令、加入保护、撤销上次清理；
-- 清理必须**二次确认**（确认区支持 Esc 关闭并聚焦）；确认框显示**预计实际释放**（逻辑大小 vs 分配大小，含 APFS 本地快照提示），清理后显示可用空间变化；
+- 清理必须**二次确认**（确认区支持 Esc 关闭并聚焦）；确认框拆成两行：**本次移出 X，立即释放 0** 与 **永久删除本批次后可释放约 Y**（逻辑大小 vs 分配大小，含 APFS 本地快照提示）；
+- **两阶段释放**：清理只移出；首页/历史显示隔离区/废纸篓占用，可「永久删除全部（N 批）」或对单批永久删除，删除后空间才真正释放；
+- 单次勾选超过 200 项时**服务端自动分片**（每片独立批次、统一撤销），一次操作可能生成多个可恢复批次；
 - 过期、扫描中、结果为空、扫描失败是四个独立状态：结果超过 10 分钟界面会实时翻成「过期」并禁用清理，只允许查看与重新扫描；
 - 口径提示贯穿页面：**移入废纸篓不会立即增加可用空间**，「建议处理」只统计实际可移动的项目（排除受保护、只读、系统项与重叠缓存）。
 
 ### 空间
 
-- 目录分布：统计范围限定家目录、含隐藏项；显示统计时间、无法读取项与跳过链接数；环形图与明细表共用同一分母，长尾 ≥7 项归入「其他」；支持点击下钻、面包屑、显示更多、重新统计（绕过 60 秒缓存）、「查看此目录的大文件」；
-- 大文件：≥300 MB、结果数量有限；支持名称/路径搜索、大小或未修改天数排序、修改时间 / 类型 / 最小大小筛选、目录联动；过期或受保护项禁选；
-- 空状态区分「还没扫描」「体检未覆盖大文件」「没有符合筛选条件」「没有发现大文件」。
+- 目录分布：统计范围限定家目录、含隐藏项；显示统计时间、无法读取项与跳过链接数；环形图与明细表共用同一分母，长尾 ≥7 项归入「其他」；支持点击下钻、面包屑、显示更多、重新统计（绕过 60 秒缓存）、「查看此目录的大文件」；一次遍历同时产出各层目录缓存（≥10 MB 子树、上限 500 条），60 秒内下钻直接命中缓存；明细行按新鲜体检报告标出「其中可清理 {size}」，点击跳到清理页并按该路径预筛选；「其他」色块与图例可展开完整明细；搬家完成后自动重新统计当前目录；
+- 大文件：全局模式来自完整扫描（≥300 MB、仅显示最大的 15 个，超时间预算时报告与界面标注结果可能不全）；「查看此目录的大文件」进入目录联动模式，数据来自目录统计同趟遍历的 bigFiles 堆（该目录 ≥1 MB top 50），无需体检报告即可搬家；支持名称/路径搜索、大小或未修改天数排序、修改时间 / 类型 / 最小大小筛选；过期或受保护项禁选；
+- 空状态区分「还没扫描」「体检未覆盖大文件」「没有符合筛选条件」「没有发现大文件」「该目录没有大文件」。
 
 ### 相似照片
 
-- dHash 指纹分组（汉明距离 ≤6），扫描 Pictures / Downloads / Desktop / Documents，最多 600 张、最小 200 KB；
+- dHash 指纹分组（汉明距离 ≤6），扫描 Pictures / Downloads / Desktop / Documents，最多 600 张、最小 200 KB；云盘目录与 App 包目录（照片图库）会被跳过并在页面提示；
 - 保留策略：最大 / 最新 / 路径最浅；文件夹筛选；每组缩略图 + 并排对比弹层选择保留项；
 - 默认勾选每组除首张外的照片，批量移入废纸篓，可撤销；移入记录与垃圾清理共用宿主接口。
 
 ### 跨盘搬家
 
 - 大文件勾选后选择目标磁盘（含每盘可用空间）与子文件夹，目标浏览只读、**不创建目录**；
+- **云盘文件与 App 数据目录**（照片图库、Mail、Messages、应用容器、商店应用数据）**不允许搬家**：扫描阶段不进大文件清单，宿主再二次拒绝（云盘文件搬走会同步删除云端）；
 - 确认前读取目标实际可用容量并做 95% 预检，不足时禁用确认；
 - 同盘直接改名；跨盘复制后做 **SHA-256 + 大小**双向校验，失败删除临时文件并保留原文件；
 - 后台任务 + 逐文件进度 + 取消；完成后可打开目标位置。**搬家不属于废纸篓恢复记录**，原位置不再保留文件。
@@ -73,6 +77,19 @@ DSH 插件：macOS / Windows 原生侧边栏磁盘空间工具。**只读体检�
 - 清理批次：时间、项数、可恢复项数，「恢复此批次」从审计日志把文件移回原位置（跨重启可用）；
 - **永久删除本批次**：行内二次确认后删除废纸篓/隔离区里的该批次，写 `purge` 审计；只允许本插件移入的条目，拒绝符号链接与隔离区外路径；
 - 审计日志 `$DSH_HOME/deepclean-audit.log`，历史 `$DSH_HOME/deepclean-history.json`。
+
+### AI 解读（只读）
+
+- 四个入口都只是**把面板里已经算好的数据拼成一段提示词，注入当前 DSH 会话**，模型只负责解释与建议：
+  - 首页「让 AI 解读这次体检」：报告摘要 + 分档条目 + 大文件；
+  - 清理页逐项「问 AI」（详情展开）：单条目的分类/风险/大小/路径/说明；
+  - 清理确认区「复核这 {n} 项」：对已勾选、尚未执行的集合做第二意见（哪些建议保留、最小集合）；
+  - 历史页「让 AI 分析趋势」：可用空间趋势、清理批次、清了又长回来的条目；
+  - 大文件行「这是什么」：让模型先调用只读工具 `disk_inspect` 查看路径事实，再解释；
+- **模型输出不进入清理允许集合，也不触发任何写操作**；清理仍由用户在面板二次确认，宿主再做白名单/符号链接/新鲜度校验；
+- 提示词规则要求模型只用给定数据、不自行重算大小、不输出删除命令、不确定就说不确定；
+- 提示词自带口径说明：按分类合计、各风险档合计、未列出条目数与其合计，以及「报告只覆盖可清理项、不等于整盘占用」的范围声明；不携带扫描器 `advice` 里的命令文本（如 `npm cache clean --force`）；
+- 没有可用的会话服务或当前没有打开的会话时，按钮降级为**复制提示词到剪贴板**并提示粘贴发送，不会静默失败。
 
 ### 保护名单
 
@@ -127,8 +144,8 @@ node scripts/preview.mjs
 ### 目录结构
 
 ```
-lib/index.js         host 插件：3 个模型工具、23 条 HTTP 路由、扫描/照片/搬家状态机
-lib/clean.js         唯一移动用户文件的模块（废纸篓/隔离区、撤销、审计日志）
+lib/index.js         host 插件：4 个只读模型工具、27 条 HTTP 路由、扫描/照片/搬家状态机
+lib/clean.js         唯一移动用户文件的模块（废纸篓/隔离区、撤销/恢复、永久删除、审计日志、隔离区统计）
 lib/platform.js      宿主白名单二次校验（跨平台路径语义）
 lib/client.js        浏览器端单文件 bundle（手写，无构建；内嵌 CSS/图标）
 resources/scripts/   只读扫描器：deepclean.py 入口、scan.py、platforms/windows.py、
@@ -136,14 +153,14 @@ resources/scripts/   只读扫描器：deepclean.py 入口、scan.py、platforms
 resources/rules.json macOS 分类规则
 resources/images/    首页插画（只经宿主固定路由暴露）
 scripts/             隔离预览、扫描器同步、Windows 验收
-tests/               node:test 97 个用例 + 照片解码回归
+tests/               node:test 151 个用例 + 照片解码回归
 docs/                Windows 验收清单、设计稿与视觉验收
 ```
 
 ### 常用命令
 
 ```bash
-npm test                                                   # 97 个用例
+npm test                                                   # 151 个用例
 node --check lib/index.js lib/client.js lib/clean.js lib/platform.js scripts/preview.mjs
 python3 resources/scripts/deepclean.py --self-test         # 扫描器自检
 python3 resources/scripts/deepclean.py --check-permissions # 权限检查
@@ -153,7 +170,7 @@ node scripts/preview.mjs                                   # 隔离预览
 
 ### 测试与 CI
 
-- `npm test`（`node --test`）共 **97** 个用例：pages 48 / host 20 / clean 7 / file-safety 11 / client 3 / windows-regressions 3 / scanner 3 / cancel 2；
+- `npm test`（`node --test`）共 **151** 个用例：pages 68 / host 34 / clean 20 / file-safety 11 / client 8 / windows-regressions 3 / scanner 5 / cancel 2；
 - 平台专用用例会跳过：macOS 跳过 2 个 Windows 专用 HTTP 用例，Windows 预期跳过 4 个 macOS 用例；
 - CI（`.github/workflows/tests.yml`）在 macOS + Windows 上跑 Node 24 + Python 3.12，只执行 `npm test`；
 - 页面测试是 SSR 渲染（`renderToString`），不是浏览器 E2E；真实交互请用隔离预览人工验收。
@@ -166,7 +183,7 @@ node scripts/preview.mjs                                   # 隔离预览
 
 ## HTTP API
 
-宿主注册 25 条路由，全部挂在 `/dsh-deepclean` 下；客户端使用其中 20 条。无鉴权，依赖 DSH webServer 自身边界；请求体上限 1 MB。下表按用途列出（`/api/scan` 的 GET / POST 分两行列）。
+宿主注册 27 条路由，全部挂在 `/dsh-deepclean` 下；客户端使用其中 24 条。无鉴权，依赖 DSH webServer 自身边界；请求体上限 1 MB。下表按用途列出（`/api/scan` 的 GET / POST 分两行列）。
 
 **只读**
 
@@ -174,7 +191,7 @@ node scripts/preview.mjs                                   # 隔离预览
 |---|---|---|
 | GET | `/assets/disk.png` | 固定首页插画，不暴露任意路径 |
 | GET | `/api/permissions` | `{ code, text }`，每次调用启动一次扫描器权限检查（30s 超时） |
-| GET | `/api/overview` | `{ at, report, disk, scan, history(最近 30), cleanBatches, whitelist, platform }` |
+| GET | `/api/overview` | `{ at, report, disk, scan, history(最近 30), cleanBatches, quarantine, whitelist, platform }` |
 | GET | `/api/disk` | 实时 `statfs` 容量快照 |
 | GET | `/api/scan` | `{ scan, report, at }` 扫描状态 |
 | GET | `/api/volumes` | 卷列表与各自容量 |
@@ -183,7 +200,8 @@ node scripts/preview.mjs                                   # 隔离预览
 | GET | `/api/photos` | 照片扫描状态与分组结果 |
 | GET | `/api/thumb?path=&size=` | 缩略图 JPEG（size 限制 64–320） |
 | GET | `/api/state` | `{ at, canUndo, lastBatchId, scan }` |
-| GET | `/api/history` | `{ scans, cleans }` |
+| GET | `/api/history` | `{ scans, cleans }`；`cleans[].lastRestore` 记录最近一次恢复失败项数 |
+| GET | `/api/quarantine` | 隔离区/废纸篓里本插件批次的 `{ root, kb, files, batches, truncated, systemTrashKb }`（3 秒缓存） |
 | GET | `/api/report?cached=1` | 有缓存时返回 `{ report, at }`；**不带 `cached=1` 会启动扫描并返回 202** |
 
 **控制 / 写操作**
@@ -194,17 +212,18 @@ node scripts/preview.mjs                                   # 隔离预览
 | POST | `/api/scan/cancel` | 取消扫描并终止子进程树 |
 | POST | `/api/photos/scan` | 启动照片扫描，202 / 409 |
 | POST | `/api/photos/cancel` | 取消照片扫描 |
-| POST | `/api/clean` | `{ paths }` 移入废纸篓/隔离区，返回 `{ batchId, moved, results }` |
-| POST | `/api/undo` | `{ batchId? }` 撤销本会话批次 |
-| POST | `/api/restore` | `{ batchId }` 从审计日志恢复历史批次 |
+| POST | `/api/clean` | `{ paths }` 移入废纸篓/隔离区；超过 200 项时服务端自动分片，返回 `{ batchId, batchIds, moved, results, batches, chunkErrors, auditOk }` |
+| POST | `/api/undo` | `{ batchId? / batchIds? }` 撤销本会话批次；返回 `{ results, summary, batches, retryable, auditOk }`，部分失败保留撤销入口 |
+| POST | `/api/restore` | `{ batchId, onConflict? }` 从审计日志恢复历史批次；`onConflict:'rename'` 时冲突另存为「name (restored)」；返回 `{ results, summary, auditOk }` |
 | POST | `/api/purge` | `{ batchId? }` 永久删除隔离区中的批次（二次确认后调用） |
+| POST | `/api/quarantine/purge` | `{ batchIds? }` 两阶段释放的第二阶段：永久删除指定/全部本插件批次，返回 `{ total, batches, results, auditOk }`；需 UI 二次确认 |
 | POST | `/api/reclaim` | `{ paths }` 估算逻辑/分配大小、文件数与 APFS 快照数 |
 | POST | `/api/move` | `{ paths, destination }` 后台搬家，202 |
 | POST | `/api/move/cancel` | 取消搬家 |
 | POST | `/api/reveal` | 在 Finder / 资源管理器中打开位置 |
 | GET/PUT/POST | `/api/whitelist` | 读取或保存保护名单 |
 
-**模型工具（只读）**：`disk_check_permissions`、`disk_audit`（支持 `quick` / `redact` / `platform` / `json`）、`disk_self_test`。
+**模型工具（只读）**：`disk_check_permissions`、`disk_audit`（支持 `quick` / `redact` / `platform` / `json`）、`disk_inspect`（检查单个路径的事实：类型/大小/文件数/修改时间/报告分档/对应 App 是否仍安装）、`disk_self_test`。
 
 ## 安全边界
 
@@ -217,6 +236,9 @@ node scripts/preview.mjs                                   # 隔离预览
 
 ## 已知限制
 
+- 云盘保护基于路径与 Windows 云占位属性识别（iCloud Drive / OneDrive / Dropbox / Google Drive），企业自建网盘或自定义同步目录需通过 `DEEPCLEAN_CLOUD_ROOTS` 补充；
+- Windows 暂未提供 VSS/回收站占用提示：永久删除后可用空间可能因卷影副本短暂滞后；
+
 - **Windows 部分分类尚未接入面板**：已卸载应用残留、UWP 商店数据、OneDrive 云盘目前只出现在只读扫描的 Markdown 报告里，面板清单与清理允许集合尚未覆盖；
 - **Windows 应用缓存尚未扫描**：报告已预留 `appCaches` 字段，Windows 端暂为空数组；macOS 已接入；
 - 真实释放估算有 8 秒预算：超大目录可能被截断（界面不区分，按逻辑大小兜底），最终以清理前后可用空间差为准；
@@ -228,10 +250,21 @@ node scripts/preview.mjs                                   # 隔离预览
 - 扫描是后台子进程，进度条按经验时长插值（快速 28s / 完整 45s），长任务时进度可能滞后；扫描不提供字节级进度；
 - `tree.py` 在 macOS 按分配占用、Windows 按逻辑大小统计，跨平台不可直接比较，也不等于整盘已用容量；
 - 撤销只针对本会话内存中的批次；跨重启恢复请用历史页的「恢复此批次」；
-- 相似照片扫描范围固定为四个目录、最多 600 张、最小 200 KB；HEIC/WebP 等格式受系统解码能力限制；
+- 相似照片扫描范围固定为四个目录、最多 600 张、最小 200 KB；HEIC/WebP 等格式受系统解码能力限制；云盘目录与照片图库包目录会被跳过（避免云端删除 / 破坏图库）；
+- 残留细粒度拆分只认目录名像缓存的子目录（Caches/tmp/Code Cache/GPUCache/CacheStorage 等，深度 ≤4）；缓存目录用了别的名字（如 QQ 音乐）或 App 仍在运行/属聊天类时，整组仍留在「需确认」；
+- AI 入口依赖当前会话（`ctx.sessions`）与 DSH 会话服务：没有打开的会话时只能复制提示词；提示词带的是报告摘要（各档前几项 + 大文件前几项），不是完整报告，问更细的条目请用逐项「问 AI」；
+
 - 依赖本机 Python 3（Windows `py -3`）；缺失时扫描与权限检查不可用。
 
 ## 版本历史
+
+### 未发布 — AI 只读解释、历史趋势与复清、路径检查
+
+- 新增 AI 只读解释入口：首页体检解读、清理页逐项「问 AI」、清理前「复核这 {n} 项」、历史「让 AI 分析趋势」、大文件「这是什么」（客户端拼接提示词注入当前会话，可降级为复制提示词）
+- 新增只读模型工具 `disk_inspect`（路径事实：类型/大小/文件数/修改时间/报告分档/对应 App 是否安装），供「未知项 / 这个大文件是什么」
+- 历史页新增「趋势与复清」：可用空间趋势、累计清理量、清理后又长回来的条目；清理审计新增 `moved[].kb/category` 标注（只用于展示，不参与放行）
+- 清理页未收录的应用残留标记「未收录」
+- 测试 151（149 pass / 2 skip）
 
 ### v0.11.0 — 应用缓存、真实释放估算、废纸篓闭环
 

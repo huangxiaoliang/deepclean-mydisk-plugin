@@ -16,6 +16,61 @@ from pathlib import Path
 
 EXTS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".gif", ".webp", ".bmp", ".tiff"}
 SKIP_DIRS = {"node_modules", ".git", ".Trash", "Library", "Photos Library.photoslibrary"}
+PACKAGE_SUFFIXES = (
+    ".photoslibrary", ".photolibrary", ".sparsebundle", ".fcpbundle", ".logicx",
+    ".band", ".imovielibrary", ".tvlibrary", ".aplibrary",
+)
+CLOUD_ATTRS = 0x400000 | 0x40000 | 0x1000  # RECALL_ON_DATA_ACCESS | RECALL_ON_OPEN | OFFLINE
+CLOUD_DIR_NAMES = ("onedrive", "dropbox", "google drive", "icloud drive")
+
+
+def cloud_roots():
+    """云盘根：照搬 tree.py 的规则（平台固定位置 + 环境变量 + DEEPCLEAN_CLOUD_ROOTS）。"""
+    roots = []
+    home = Path.home()
+    if sys.platform == "darwin":
+        roots += [home / "Library" / "CloudStorage", home / "Library" / "Mobile Documents"]
+    else:
+        for name in ("OneDrive", "OneDriveConsumer", "OneDriveCommercial"):
+            value = os.environ.get(name)
+            if value:
+                roots.append(Path(value))
+        try:
+            for child in home.iterdir():
+                if child.name.lower().startswith(CLOUD_DIR_NAMES):
+                    roots.append(child)
+        except OSError:
+            pass
+    extra = os.environ.get("DEEPCLEAN_CLOUD_ROOTS")
+    if extra:
+        try:
+            roots += [Path(p) for p in json.loads(extra) if isinstance(p, str)]
+        except (ValueError, TypeError):
+            pass
+    out = []
+    for root in roots:
+        try:
+            out.append(str(root.resolve()))
+        except OSError:
+            continue
+    return out
+
+
+def is_cloud_path(path, roots):
+    try:
+        target = os.path.normcase(str(Path(path).resolve()))
+    except OSError:
+        return False
+    for root in roots:
+        base = os.path.normcase(str(Path(root).resolve()))
+        if target == base or target.startswith(base + os.sep):
+            return True
+    return False
+
+
+def is_package_dir(name):
+    low = name.lower()
+    return any(low.endswith(suffix) for suffix in PACKAGE_SUFFIXES)
 
 
 def _progress(pct, label):
@@ -91,14 +146,32 @@ def hamming(a, b):
     return bin(a ^ b).count("1")
 
 
-def collect(dirs, min_kb, limit):
+def collect(dirs, min_kb, limit, stats=None):
+    """收集候选图片；云盘目录与 App 包目录跳过（云端去重=删云端文件，包目录移动会破坏 App）。"""
+    stats = stats if stats is not None else {"cloud": 0, "package": 0}
+    clouds = cloud_roots()
     files = []
     for root in dirs:
         root = Path(root)
         if not root.is_dir():
             continue
+        if is_cloud_path(root, clouds):
+            stats["cloud"] += 1
+            continue
         for dirpath, dirnames, filenames in os.walk(root):
-            dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")]
+            kept = []
+            for d in dirnames:
+                if d in SKIP_DIRS or d.startswith("."):
+                    continue
+                child = Path(dirpath) / d
+                if is_cloud_path(child, clouds):
+                    stats["cloud"] += 1
+                    continue
+                if is_package_dir(d):
+                    stats["package"] += 1
+                    continue
+                kept.append(d)
+            dirnames[:] = kept
             for name in filenames:
                 if Path(name).suffix.lower() not in EXTS:
                     continue
@@ -107,11 +180,14 @@ def collect(dirs, min_kb, limit):
                     st = p.stat()
                 except OSError:
                     continue
+                if getattr(st, "st_file_attributes", 0) & CLOUD_ATTRS:
+                    stats["cloud"] += 1
+                    continue
                 if st.st_size < min_kb * 1024:
                     continue
                 files.append({"path": str(p), "kb": st.st_size // 1024, "mtime": int(st.st_mtime), "size": st.st_size})
     files.sort(key=lambda f: -f["size"])
-    return files[:limit]
+    return files[:limit], stats
 
 
 def main():
@@ -125,7 +201,7 @@ def main():
     dirs = [home / "Pictures", home / "Downloads", home / "Desktop", home / "Documents"]
     t0 = time.time()
     _progress(5, "查找图片")
-    files = collect(dirs, args.min_kb, args.limit)
+    files, stats = collect(dirs, args.min_kb, args.limit)
     total = len(files)
     _progress(15, f"计算指纹（0/{total}）")
     if sys.platform == "win32" and files:
@@ -181,7 +257,9 @@ def main():
         })
     result.sort(key=lambda g: -g["wastedKb"])
     out = {"generatedAt": int(time.time() * 1000), "scanned": total,
-           "compared": len(good), "skipped": total - len(good), "groups": result, "elapsed": round(time.time() - t0, 1)}
+           "compared": len(good), "skipped": total - len(good), "groups": result,
+           "skippedCloud": stats.get("cloud", 0), "skippedPackages": stats.get("package", 0),
+           "elapsed": round(time.time() - t0, 1)}
     Path(args.json).write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
     _progress(100, "完成")
 

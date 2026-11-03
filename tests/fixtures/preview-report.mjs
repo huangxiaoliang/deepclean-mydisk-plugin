@@ -5,6 +5,7 @@ export function previewReport() {
   return {
     platform: 'macos', home, elapsed: 3,
     disk: { total: 228.3 * 1024 ** 3, used: 133.9 * 1024 ** 3, free: 94.4 * 1024 ** 3 },
+    trashKb: 204800,
     fda: { status: 'granted' },
     leftoverGroups: [{ baseId: 'demo.old-app', name: '旧应用缓存', bucket: 'safe', count: 1, kb: .8 * gb, paths: [home + '/Library/Containers/old-app'], why: '已卸载应用的缓存残留' }],
     devCaches: [
@@ -13,7 +14,10 @@ export function previewReport() {
       { path: home + '/.m2/repository', kb: .4 * gb, advice: 'Maven 仓库，构建时会重新下载', cleanable: true },
       { path: home + '/Library/Developer/Xcode/Archives', kb: 3 * gb, advice: '应用归档，提交或回滚时可能需要，需确认', cleanable: false },
     ],
-    browsers: [{ name: 'Chrome', path: home + '/Library/Caches/Chrome', kb: 1.6 * gb }],
+    browsers: [
+      { name: 'Chrome', path: home + '/Library/Caches/Chrome', kb: 1.6 * gb, running: false },
+      { name: 'Safari', path: home + '/Library/Caches/com.apple.Safari', kb: .4 * gb, running: true },
+    ],
     caches: [],
     special: [{ app: '企业微信', categories: [
       { name: '缓存', cleanable: true, kb: .2 * gb, paths: [home + '/Library/Caches/WeCom'] },

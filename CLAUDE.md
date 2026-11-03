@@ -19,11 +19,13 @@ node --check lib/index.js lib/client.js lib/clean.js lib/platform.js scripts/pre
 npm test
 python3 resources/scripts/deepclean.py --self-test    # 动了 resources/scripts/** 才需要
 python3 tests/photos-regressions.py                   # 动了 photos.py / photos-windows.ps1 才需要
+python3 tests/macos-scanner-regressions.py            # 动了 scan.py 的 big_files 才需要
 python3 tests/windows-scanner-regressions.py          # 动了 platforms/windows.py 才需要
+python3 tests/tree-regressions.py                     # 动了 tree.py 才需要
 ```
 
 - 只改 `.md` 不用跑测试。
-- macOS 上 `npm test` 是 **97 用例 / 95 pass / 2 skip**；2 个 skip 是 Windows 专用 HTTP 用例（`tests/host.test.mjs` 里 `skip: process.platform !== 'win32'`），属于预期，不要删改断言来「修绿」。
+- macOS 上 `npm test` 是 **151 用例 / 149 pass / 2 skip**；2 个 skip 是 Windows 专用 HTTP 用例（`tests/host.test.mjs` 里 `skip: process.platform !== 'win32'`），属于预期，不要删改断言来「修绿」。
 - 改 `lib/client.js` 的界面后，用 `node scripts/preview.mjs`（127.0.0.1:4173，宿主 API 全 mock、路径虚构在 `/demo`）人工确认；预览不碰真实磁盘。
 - 提交前 `git diff` 自查：不能包含 `report.md` / `report.json` / `acceptance-report/` / `__pycache__` 等产物。
 
@@ -33,7 +35,7 @@ python3 tests/windows-scanner-regressions.py          # 动了 platforms/windows
 - 只接受最近 **10 分钟**的扫描结果；「需确认」档永不进入清理允许集合。
 - 白名单在宿主用 `isProtected` **二次校验**（不依赖 UI 勾选）；win32 大小写不敏感并解析 `.` / `..`。
 - 符号链接一律拒绝：清理逐条 `lstat`、搬家源逐级祖先、搬家目标、tree 浏览。
-- 跨盘搬家必须复制后 **SHA-256 + 大小**双向校验；失败删除临时文件并保留原文件。
+- 跨盘搬家必须复制后 **SHA-256 + 大小**双向校验；失败删除临时文件并保留原文件。搬家允许集合：10 分钟内的体检 `bigFiles` 或目录统计 `bigFiles`。
 - 写用户文件的代码只允许出现在 `lib/clean.js` 与 `lib/index.js` 的清理/搬家入口；`lib/client.js` 只调 HTTP API，不做任何文件写操作。
 - 不要为了跑通缩短新鲜度、放宽白名单、跳过 symlink 校验、改单批 200 上限或审计日志格式（`$DSH_HOME/deepclean-audit.log` / `deepclean-history.json`）。
 - 不引入注册表清理、后台常驻扫描、恐吓式提示。
