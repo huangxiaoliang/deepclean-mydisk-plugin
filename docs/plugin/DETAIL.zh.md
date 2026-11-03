@@ -36,7 +36,7 @@ DeepClean MyDisk 是 macOS / Windows 上的 DSH 磁盘插件：先做**只读**�
 
 - macOS：需要「完全磁盘访问」与 `python3`；扫描器使用系统自带的 `du`、`plutil`、`sips` 等工具。
 - Windows：需要 `py -3` 或 `python`；照片解码使用 PowerShell；部分系统目录需要管理员权限。
-- DSH 0.2.1 或更新版本。Linux 未验收。
+- DSH 0.2.x（≥0.2.1-rc.5，<0.3.0）。Linux 未验收。
 
 ## 安装
 
@@ -58,7 +58,7 @@ dsh plugin add deepclean-mydisk
 ## 已知限制
 
 - Windows 的 `appCaches` 扫描尚未实现；聊天软件专项分类仅 macOS 提供。
-- Windows 真机验收仍在进行中。
+- Windows 已由 CI 在 Windows Server 2022 / Server 2025 / Windows 11 Arm64 三个镜像上自动验收；手动真机清单见 [docs/windows-acceptance.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/docs/windows-acceptance.md)。
 - 跨盘移动不可撤销，原位置不再保留文件。
 - 相似照片只扫描四个目录、最多 600 张、最小 200 KB；云盘目录与照片图库会被跳过。
 - 永久删除不可撤销；撤销只适用于移入废纸篓/隔离区的批次。

@@ -15,6 +15,8 @@ DSH 市场的插件详情页没有内置的反馈按钮；详情页的「主页�
 
 ## 提交前请先自查
 
+以下命令需要在**插件源码目录**运行（npm / DSH 安装版没有 `resources/` 路径，改用面板「设置 → 权限检查」）：
+
 ```bash
 python3 resources/scripts/deepclean.py --self-test
 python3 resources/scripts/deepclean.py --check-permissions
@@ -36,7 +38,7 @@ python3 resources/scripts/deepclean.py --check-permissions
 ## 日志、报告与隐私
 
 - 审计日志：`$DSH_HOME/deepclean-audit.log`；历史：`$DSH_HOME/deepclean-history.json`；
-- 重新生成脱敏报告：`deepclean.py --quick --redact --md report.md --json report.json`；
+- 在源码目录重新生成脱敏报告：`deepclean.py --quick --redact --md report.md --json report.json`；
 - **不要**贴完整磁盘路径、用户名、文件名、聊天记录或未脱敏的审计日志原文；用 `~/…`、
   `%LOCALAPPDATA%\…` 或只保留错误码 / 大小 / 分类来复现问题；
 - 插件不会自动上传任何扫描结果、日志或文件列表。

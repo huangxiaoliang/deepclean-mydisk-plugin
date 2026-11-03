@@ -21,4 +21,4 @@ python3 tests/photos-regressions.py   # 仅在动过 photos.py / photos-windows.
 
 - `--self-test` 在临时 HOME 上跑一次 quick 扫描，验证只读链路与报告结构。
 - `--check-permissions` 在 macOS 需要「完全磁盘访问」；未授权只报告，不代表代码坏了。
-- `--version` 输出的是扫描器 CLI 版本（当前 0.5.0），与 `package.json` 的插件版本（0.10.x）是两套独立版本号，不要同步改。
+- `--version` 输出的是扫描器 CLI 版本（当前 0.5.0），与 `package.json` 的插件版本是两套独立版本号（插件版本以 `package.json` 为准），不要同步改。

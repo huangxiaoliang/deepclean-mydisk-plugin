@@ -36,7 +36,7 @@ The allow-set is re-checked in the host. Protected paths always win, symbolic li
 
 - macOS: Full Disk Access plus `python3`; the scanner uses built-in tools such as `du`, `plutil`, and `sips`.
 - Windows: `py -3` or `python`, with PowerShell for photo decoding; some system directories need administrator rights.
-- DSH 0.2.1 or newer. Linux is unverified.
+- DSH 0.2.x (>=0.2.1-rc.5, <0.3.0). Linux is unverified.
 
 ## Install
 
@@ -58,7 +58,7 @@ Add `--profile <name>` for a named profile. This installs the published npm pack
 ## Limits
 
 - Windows `appCaches` scanning is not implemented, and chat-app cache classification is macOS-only.
-- Windows real-device acceptance is still pending.
+- Windows is covered by CI acceptance on Windows Server 2022, Server 2025 and Windows 11 Arm64; the manual real-device checklist is in [docs/windows-acceptance.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/docs/windows-acceptance.md).
 - Cross-disk moves are not undoable, and the original location is not kept.
 - Similar-photo scanning is limited to four folders, 600 photos, and a 200 KB minimum; cloud folders and photo libraries are skipped.
 - Permanent deletion is irreversible. Undo applies to moved batches only.

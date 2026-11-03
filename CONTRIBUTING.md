@@ -124,7 +124,9 @@ node scripts/preview.mjs                                   # 隔离预览
 ## 发布
 
 1. 更新 `CHANGELOG.md` 与 `package.json` 的 version；
-2. `git commit` → `git tag vX.Y.Z` → `gh release create`；
-3. 发布前跑 `npm test`、`node --check`、`deepclean.py --self-test` 与相关 Python 回归。
+2. 发布前跑 `npm test`、`node --check`、`deepclean.py --self-test` 与相关 Python 回归；
+3. `git commit` → `git tag vX.Y.Z` → `gh release create`（附 `npm pack` 生成的 `.tgz`）；
+4. `npm publish`：账号需安全密钥 2FA；首次发布时 npm 会自动生成 `0.0.0-stage` 占位版本（属正常，`latest` 不受影响）；
+5. 市场条目（awesome-dsh-plugin）只在描述/分类变化时需要更新；npm 版本映射由该仓库 CI 自动探测。
 
 安全红线与不可协商的约束见 [AGENTS.md](AGENTS.md)。
