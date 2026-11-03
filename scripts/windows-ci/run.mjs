@@ -66,8 +66,8 @@ try {
     // 客户端镜像（如 windows-11-arm）可能没有可用的卷管理能力。去掉 volume-setup 的
     // 失败记录（按名字定位，不依赖位置），显式 SKIP；cases.mjs 会据此只跳过跨卷用例，
     // 其余原生用例照常执行。
-    const failedVolume = steps[steps.length - 1]
-    if (failedVolume && failedVolume.name === 'volume-setup') steps.pop()
+    const volumeIndex = steps.findLastIndex((step) => step.name === 'volume-setup')
+    if (volumeIndex >= 0) steps.splice(volumeIndex, 1)
     skip('volume-setup', volume.passed
       ? 'volume-setup did not report a drive letter; the cross-volume native case is skipped explicitly.'
       : 'No disposable volume on this image; the cross-volume native case is skipped explicitly.')

@@ -46,4 +46,13 @@ test('Windows default quarantine root is owned by restore and purge', async (t) 
   const restored = clean.restoreMoved(batch.moved, batch.batchId)
   assert.equal(restored.results[0].ok, true, JSON.stringify(restored.results))
   assert.equal(fs.readFileSync(file, 'utf8'), 'keep me')
+
+  // 永久删除也依赖同一个默认根；用第二个批次直接断言 purgeMoved 的归属校验。
+  const doomed = path.join(root, 'doomed.txt')
+  fs.writeFileSync(doomed, 'delete me')
+  const doomedBatch = clean.moveToTrash([doomed], new Set([doomed]))
+  assert.equal(doomedBatch.results[0].ok, true, JSON.stringify(doomedBatch.results))
+  const purged = clean.purgeMoved(doomedBatch.moved, doomedBatch.batchId)
+  assert.equal(purged.purged, 1, JSON.stringify(purged.results))
+  assert.equal(fs.existsSync(doomedBatch.moved[0].to), false)
 })
