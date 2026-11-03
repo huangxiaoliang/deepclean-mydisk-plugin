@@ -25,3 +25,17 @@ test('windows scanner pure-function regressions (big files mtime/budget, cleanab
   const r = spawnSync(cmd, [tests], { encoding: 'utf8', timeout: 60000 })
   assert.equal(r.status, 0, `stdout:\n${r.stdout}\nstderr:\n${r.stderr}`)
 })
+
+test('tree.py regressions (dirs seeding map, big-file heaps, partial propagation)', () => {
+  const tests = fileURLToPath(new URL('./tree-regressions.py', import.meta.url))
+  const cmd = process.env.PYTHON || (win ? 'python' : 'python3')
+  const r = spawnSync(cmd, [tests], { encoding: 'utf8', timeout: 60000 })
+  assert.equal(r.status, 0, `stdout:\n${r.stdout}\nstderr:\n${r.stderr}`)
+})
+
+test('macos scanner regressions (big_files streaming top-N heap, prune, budget cutoff)', () => {
+  const tests = fileURLToPath(new URL('./macos-scanner-regressions.py', import.meta.url))
+  const cmd = process.env.PYTHON || (win ? 'python' : 'python3')
+  const r = spawnSync(cmd, [tests], { encoding: 'utf8', timeout: 60000 })
+  assert.equal(r.status, 0, `stdout:\n${r.stdout}\nstderr:\n${r.stderr}`)
+})

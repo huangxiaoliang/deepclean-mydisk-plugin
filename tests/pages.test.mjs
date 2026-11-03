@@ -83,7 +83,7 @@ const mockPhotos = { scanned: 100, compared: 100, elapsed: 5, groups: [
   { id: 'g1', items: [{ path: '/tmp/p1/a.jpg', kb: 2000, mtime: 1 }, { path: '/tmp/p2/b.jpg', kb: 1500, mtime: 2 }], totalKb: 3500, wastedKb: 1500 },
 ] }
 
-function renderWithData(mutate, lang, overview = mockOverview, photos = mockPhotos) {
+function renderWithData(mutate, lang, overview = mockOverview, photos = mockPhotos, ai = null) {
   const source = mutate(base)
     .replace('const [overview, setOverview] = useState(null);', 'const [overview, setOverview] = useState(globalThis.__TEST_OVERVIEW__ || null);')
     .replace('const [liveDisk, setLiveDisk] = useState(null);', 'const [liveDisk, setLiveDisk] = useState(globalThis.__TEST_DISK__ || null);')
@@ -102,7 +102,12 @@ function renderWithData(mutate, lang, overview = mockOverview, photos = mockPhot
   const regs = []
   mod.apply({ slots: { inject(_n, cb) { cb() }, register(s, c) { regs.push({ s, c }); return () => {} } } })
   const Panel = regs.find((r) => r.s.name === 'main').c
-  return renderToString(require('react').createElement(Panel))
+  return renderToString(require('react').createElement(Panel, ai ? { ai } : null))
+}
+
+function aiStub() {
+  const calls = []
+  return { calls, ai: { available: true, ask: async (text) => { calls.push(text); return 'sent' } } }
 }
 
 for (const [name, mutate] of cases) {
@@ -236,6 +241,30 @@ test('large files from expired reports and protected locations cannot be selecte
   }
 })
 
+test('scoped large-file view uses folder analysis data without a scan report', () => {
+  const scoped = { scope: '/demo/dir', at: Date.now(), files: [{ path: '/demo/dir/movie.mkv', kb: 800000, mtime: Math.floor(Date.now() / 1000) - 86400 * 30 }] }
+  const mutate = (s) => cases.find(([n]) => n === 'space-large')[1](s)
+    .replace('const [spaceScope, setSpaceScope] = useState("");', 'const [spaceScope, setSpaceScope] = useState("/demo/dir");')
+    .replace('const [spaceFiles, setSpaceFiles] = useState(null);', `const [spaceFiles, setSpaceFiles] = useState(${JSON.stringify(scoped)});`)
+  const zh = renderWithData(mutate, 'zh', noScanOverview)
+  assert.ok(zh.includes('movie.mkv'), 'folder-analysis files render without a scan report')
+  assert.ok(zh.includes('来源：目录统计'))
+  assert.ok(!zh.includes('先扫描，查找占用较大的文件'))
+  assert.ok(zh.includes('aria-label="选择 /demo/dir/movie.mkv"'), 'fresh folder analysis allows selection')
+  const en = renderWithData(mutate, 'en', noScanOverview)
+  assert.ok(en.includes('Source: folder analysis'))
+})
+
+test('scoped large files from stale folder analysis cannot be selected', () => {
+  const scoped = { scope: '/demo/dir', at: Date.now() - 11 * 60000, files: [{ path: '/demo/dir/movie.mkv', kb: 800000, mtime: 1 }] }
+  const mutate = (s) => cases.find(([n]) => n === 'space-large')[1](s)
+    .replace('const [spaceScope, setSpaceScope] = useState("");', 'const [spaceScope, setSpaceScope] = useState("/demo/dir");')
+    .replace('const [spaceFiles, setSpaceFiles] = useState(null);', `const [spaceFiles, setSpaceFiles] = useState(${JSON.stringify(scoped)});`)
+  const html = renderWithData(mutate, 'zh', noScanOverview)
+  assert.ok(html.includes('目录统计已过期'))
+  assert.match(html, /aria-label="选择 \/demo\/dir\/movie.mkv"[^>]*disabled=""/)
+})
+
 test('space chart includes all items in total and aggregates the tail consistently', () => {
   const children = Array.from({length:9},(_,i)=>({path:'/demo/'+i,name:'item'+i,kb:1024,isDir:true}))
   const mutate=s=>cases.find(([n])=>n==='space-tree')[1](s).replace('const [data, setData] = useState(null);','const [data, setData] = useState('+JSON.stringify({path:'/demo',at:Date.now(),children,metric:'allocated'})+');')
@@ -245,6 +274,27 @@ test('space chart includes all items in total and aggregates the tail consistent
   assert.ok(html.includes('其他'))
   assert.ok(html.includes('33%'))
   assert.ok(!html.includes('NaN'))
+})
+
+test('space tail segment and legend rows are expandable', () => {
+  const children = Array.from({length:9},(_,i)=>({path:'/demo/'+i,name:'item'+i,kb:1024,isDir:true}))
+  const mutate=s=>cases.find(([n])=>n==='space-tree')[1](s).replace('const [data, setData] = useState(null);','const [data, setData] = useState('+JSON.stringify({path:'/demo',at:Date.now(),children,metric:'allocated'})+');')
+  const html=renderView(mutate)
+  assert.ok(html.includes('其他'))
+  const legendButtons = html.match(/<button[^>]*class="dc-space-legend"/g) || []
+  assert.equal(legendButtons.length, 7, 'legend rows are buttons, including the tail segment')
+})
+
+test('space tree marks cleanable portions from the fresh report', () => {
+  const children = [{path:'/tmp',name:'tmp',kb:300000,isDir:true},{path:'/var',name:'var',kb:5000,isDir:true}]
+  const mutate=s=>cases.find(([n])=>n==='space-tree')[1](s).replace('const [data, setData] = useState(null);','const [data, setData] = useState('+JSON.stringify({path:'/demo',at:Date.now(),children,metric:'allocated'})+');')
+  const zh = renderWithData(mutate,'zh')
+  assert.ok(zh.includes('其中可清理'), 'folders with cleanable entries show a badge')
+  assert.equal((zh.match(/其中可清理/g) || []).length, 1, 'only /tmp has cleanable entries, not /var')
+  const stale = renderWithData(mutate,'zh',{ ...mockOverview, at: Date.now()-11*60000 })
+  assert.ok(!stale.includes('其中可清理'), 'stale reports must not promise cleanable space')
+  const en = renderWithData(mutate,'en')
+  assert.match(en, /cleanable/)
 })
 
 test('moving all known large files does not mislabel the scan as missing coverage', () => {
@@ -314,6 +364,49 @@ test('photos page handles Windows path separators', () => {
   assert.ok(en.includes('>a.jpg<'))
 })
 
+test('running browser cache is view-only and excluded from movable totals', () => {
+  const mutate = cases.find(([n]) => n === 'clean-junk')[1]
+  const overview = { ...mockOverview, report: { ...mockOverview.report,
+    leftoverGroups: [], devCaches: [], caches: [], special: [], appCaches: [],
+    browsers: [
+      { name: 'Chrome', path: '/tmp/browser-running', kb: 8000, running: true },
+      { name: 'Firefox', path: '/tmp/browser-idle', kb: 4000, running: false },
+    ] } }
+  const zh = renderWithData(mutate, 'zh', overview)
+  assert.ok(zh.includes('App 正在运行，退出后可清理'))
+  assert.ok(!zh.includes('aria-label="选择 Chrome'), 'running browser row has no checkbox')
+  assert.ok(zh.includes('aria-label="选择 Firefox'), 'idle browser stays selectable')
+  assert.match(zh, /预计可释放<strong>4 MB<\/strong>/, 'only the idle browser counts')
+  const en = renderWithData(mutate, 'en', overview)
+  assert.ok(en.includes('App is running; quit it before cleaning'))
+})
+
+test('read-only rows offer reveal in the detail panel', () => {
+  const mutate = (s) => cases.find(([n]) => n === 'clean-junk')[1](s)
+    .replace('const [expanded, setExpanded] = useState("");', 'const [expanded, setExpanded] = useState("g:com.test.chat");')
+  const zh = renderWithData(mutate, 'zh', mockOverview)
+  assert.match(zh, /仅供查看，不提供清理/)
+  assert.match(zh, /打开位置/)
+  const en = renderWithData(mutate, 'en', mockOverview)
+  assert.match(en, /Show location/)
+})
+
+test('fda banner shows on home and clean pages when permission is denied', () => {
+  const deny = (s) => s.replace('useState({ status: "ok", text: "" })', 'useState({ status: "denied", text: "step1 step2" })')
+  const home = renderWithData((s) => deny(s), 'zh', mockOverview)
+  assert.match(home, /未授权完全磁盘访问，扫描结果会严重漏报。/)
+  assert.match(home, /打开系统设置/)
+  assert.match(home, /查看详细步骤/)
+  assert.match(home, /重新检查/)
+  const clean = renderWithData((s) => deny(cases.find(([n]) => n === 'clean-junk')[1](s)), 'zh', mockOverview)
+  assert.match(clean, /打开系统设置/)
+  const en = renderWithData((s) => deny(s), 'en', mockOverview)
+  assert.match(en, /Full Disk Access not granted/)
+  assert.match(en, /Open System Settings/)
+  const granted = renderWithData((s) => s, 'zh', mockOverview)
+  assert.ok(!granted.includes('打开系统设置'), 'granted status renders no banner')
+})
+
 test('history offers permanent deletion of a batch', () => {
   const mutate = cases.find(([n]) => n === 'history')[1]
   const zh = renderWithData(mutate, 'zh')
@@ -324,4 +417,189 @@ test('wizard confirm estimates real release', () => {
   const mutate = cases.find(([n]) => n === 'home-wizard-confirm')[1]
   const zh = renderWithData(mutate, 'zh')
   assert.match(zh, /正在估算实际释放/)
+})
+
+// ── AI（只读解释）入口 ────────────────────────────────────────────────────
+test('home offers an AI checkup explanation only when the AI entry is wired', () => {
+  const { ai } = aiStub()
+  const zh = renderWithData((s) => s, 'zh', mockOverview, mockPhotos, ai)
+  assert.match(zh, /让 AI 解读这次体检/)
+  assert.match(zh, /问 AI|让 AI 解读/, 'AI actions render on the checkup page')
+  const en = renderWithData((s) => s, 'en', mockOverview, mockPhotos, ai)
+  assert.match(en, /Ask AI to explain this checkup/)
+  const plain = renderWithData((s) => s, 'zh', mockOverview)
+  assert.ok(!plain.includes('让 AI 解读这次体检'), 'no AI entry without the bridge')
+})
+
+test('clean page offers per-item AI explanation and pre-clean review', () => {
+  const { ai } = aiStub()
+  const clean = cases.find(([n]) => n === 'clean-junk')[1]
+  const stateBlock = 'const [sel, setSel] = useState({});\n\t\t\tconst [expanded, setExpanded] = useState("");\n\t\t\tconst [confirming, setConfirming] = useState(false);'
+  const detail = (s) => clean(s).replace('const [expanded, setExpanded] = useState("");', 'const [expanded, setExpanded] = useState("d:/tmp/dev-a");')
+  const unknownOverview = {
+    ...mockOverview,
+    report: { ...mockOverview.report, leftoverGroups: [
+      { baseId: 'com.unknown.app', name: 'com.unknown.app', kb: 50000, bucket: 'safe', count: 1, paths: ['/tmp/x/unknown'], why: '媒体类 App 已卸载，缓存为主' },
+    ] },
+  }
+  const zh = renderWithData(detail, 'zh', unknownOverview, mockPhotos, ai)
+  assert.match(zh, /问 AI/)
+  assert.match(zh, /未收录/, 'uncatalogued leftover entries are marked')
+  const review = (s) => clean(s).replace(stateBlock, 'const [sel, setSel] = useState({ "/tmp/dev-a": true });\n\t\t\tconst [expanded, setExpanded] = useState("d:/tmp/dev-a");\n\t\t\tconst [confirming, setConfirming] = useState(true);')
+  const confirm = renderWithData(review, 'zh', mockOverview, mockPhotos, ai)
+  assert.match(confirm, /已选 1 项/)
+  assert.match(confirm, /复核这 1 项/)
+  const en = renderWithData(review, 'en', mockOverview, mockPhotos, ai)
+  assert.match(en, /Have AI review these 1 items/)
+})
+
+test('history shows trend, regrowth and an AI analysis entry', () => {
+  const { ai } = aiStub()
+  const overview = {
+    ...mockOverview,
+    history: [
+      { at: Date.now() - 7 * 86400000, free: 90e9, totalKb: 500000, elapsed: 20 },
+      { at: Date.now(), free: 94e9, totalKb: 400000, elapsed: 21 },
+    ],
+    cleanBatches: [{
+      batchId: 'b1', at: new Date(Date.now() - 3 * 86400000).toISOString(), count: 1, restorable: 1,
+      items: [{ from: '/tmp/x/media', to: '/trash/media', exists: true, kb: 100000, category: 'leftover' }],
+    }],
+  }
+  const mutate = cases.find(([n]) => n === 'history')[1]
+  const zh = renderWithData(mutate, 'zh', overview, mockPhotos, ai)
+  assert.match(zh, /趋势与复清/)
+  assert.match(zh, /过去 7 天：可用 83\.82G → 87\.54G/)
+  assert.match(zh, /清了又长回来/)
+  assert.match(zh, /清过 97\.7M，现在 195\.3M/)
+  assert.match(zh, /让 AI 分析趋势/)
+  const en = renderWithData(mutate, 'en', overview, mockPhotos, ai)
+  assert.match(en, /Trends and regrowth/)
+  assert.match(en, /Ask AI to analyze trends/)
+})
+
+test('large files offer an AI "what is this" entry when wired', () => {
+  const { ai } = aiStub()
+  const mutate = cases.find(([n]) => n === 'space-large')[1]
+  const zh = renderWithData(mutate, 'zh', mockOverview, mockPhotos, ai)
+  assert.match(zh, /这是什么/)
+  const en = renderWithData(mutate, 'en', mockOverview, mockPhotos, ai)
+  assert.match(en, /What is this\?/)
+  const plain = renderWithData(mutate, 'zh', mockOverview)
+  assert.ok(!plain.includes('这是什么'), 'no AI action without the bridge')
+})
+
+
+test('split cache rows from uninstalled leftovers are cleanable and labelled', () => {
+  const overview = {
+    ...mockOverview,
+    report: { ...mockOverview.report, leftoverGroups: [
+      { baseId: 'com.tencent.txdocs.cache', name: '腾讯文档', cachePart: true, bucket: 'safe', kb: 60000, count: 2, paths: ['/tmp/txdocs/Data/Library/Caches', '/tmp/txdocs/Data/tmp'], why: '已卸载 App 的缓存子目录，可重建；文档/聊天等数据仍保留' },
+      { baseId: 'com.tencent.txdocs', name: '腾讯文档', bucket: 'confirm', kb: 40000, count: 1, paths: ['/tmp/txdocs'], why: '可能含聊天记录/文档/笔记；其中缓存子目录已单独列出（可清理）' },
+    ] },
+  }
+  const mutate = cases.find(([n]) => n === 'clean-junk')[1]
+  const zh = renderWithData(mutate, 'zh', overview)
+  assert.match(zh, /腾讯文档 · 缓存/, 'the split row gets a cache suffix')
+  assert.match(zh, /aria-label="选择 腾讯文档 · 缓存"/, 'the split row is selectable')
+  assert.doesNotMatch(zh, /未收录/, 'no unknown badge for the split row')
+  const en = renderWithData(mutate, 'en', overview)
+  assert.match(en, /Tencent Docs · Cache|腾讯文档 · Cache/)
+})
+
+// ── PR-1：恢复诚实反馈 + 对比弹层可访问性 ────────────────────────────────
+test('photo compare dialog uses theme tokens and dialog semantics', () => {
+  assert.match(base, /role: "dialog"/)
+  assert.match(base, /aria-modal/)
+  assert.match(base, /"aria-labelledby": "dc-compare-title"/)
+  assert.doesNotMatch(base, /--dsh-bg/, 'no undefined DSH theme variable (dark-on-dark bug)')
+  assert.match(base, /另存为副本恢复/)
+})
+
+test('history surfaces a failed restore and offers restore-as-copy', () => {
+  const mutate = cases.find(([n]) => n === 'history')[1]
+  const overview = {
+    ...mockOverview,
+    cleanBatches: [{
+      batchId: 'b1', at: Date.now() - 3600000, count: 3, restorable: 1, items: [],
+      lastRestore: { at: Date.now() - 60000, ok: 2, failed: 1, codes: { exists: 1 } },
+    }],
+  }
+  const zh = renderWithData(mutate, 'zh', overview)
+  assert.match(zh, /上次恢复失败 1 项/)
+  assert.match(zh, /另存为副本恢复/)
+  const en = renderWithData(mutate, 'en', overview)
+  assert.match(en, /Restore as a copy/)
+})
+
+test('photo compare dialog renders open with readable theme and dialog semantics', () => {
+  const photosView = cases.find(([n]) => n === 'clean-photos')[1]
+  const open = (s) => photosView(s).replace('const [compare, setCompare] = useState("");', 'const [compare, setCompare] = useState("g1");')
+  const html = renderWithData(open, 'zh')
+  assert.match(html, /role="dialog"/)
+  assert.match(html, /aria-modal="true"/)
+  assert.match(html, /id="dc-compare-title"/)
+  assert.match(html, /选择保留的照片/)
+  assert.doesNotMatch(html, /--dsh-bg/)
+  assert.match(html, /background:var\(--dc-bg\)/)
+})
+
+// ── PR-2：批量上限说明与照片选择管理 ─────────────────────────────────────
+test('batch limit is explained and photo selection can be cleared', () => {
+  assert.match(base, /将分 \{n\} 批执行（每批最多 200 项）/)
+  assert.match(base, /清空选择/)
+  assert.match(base, /撤销照片清理/)
+  assert.match(base, /batchIds/)
+})
+
+
+// ── PR-3：隔离区中心与两阶段释放口径 ─────────────────────────────────────
+test('home and history surface quarantine usage and a delete-all entry', () => {
+  const overview = {
+    ...mockOverview,
+    quarantine: {
+      root: '/demo/.Trash', kb: 204800, files: 3, truncated: false, systemTrashKb: 409600,
+      batches: [{ batchId: 'q1', kb: 204800, files: 3, at: Date.now() }],
+    },
+  }
+  const home = renderWithData((s) => s, 'zh', overview)
+  assert.match(home, /废纸篓里还有/)
+  assert.match(home, /查看并释放/)
+  assert.match(home, /系统废纸篓共/)
+  const history = renderWithData(cases.find(([n]) => n === 'history')[1], 'zh', overview)
+  assert.match(history, /隔离区\/废纸篓/)
+  assert.match(history, /永久删除全部（1 批）/)
+  const en = renderWithData((s) => s, 'en', overview)
+  assert.match(en, /Review and release/)
+})
+
+test('release copy separates moving out from freeing space', () => {
+  const mutate = cases.find(([n]) => n === 'home-wizard-confirm')[1]
+  const zh = renderWithData(mutate, 'zh')
+  assert.match(zh, /本次移出/)
+  assert.match(zh, /立即释放 0/)
+  assert.match(base, /永久删除本批次后可释放约/)
+  assert.match(base, /永久删除并释放/)
+  assert.match(base, /可用空间现在不会变化/)
+})
+
+
+// ── 复核修复：恢复/批量失败的如实文案 ───────────────────────────────────
+test('restore and batch failures are surfaced in copy', () => {
+  assert.match(base, /恢复记录写入失败/)
+  assert.match(base, /部分批次失败/)
+  assert.match(base, /另存为副本/)
+})
+
+test('clean list orders cleanable rows before needs-review and protected rows', () => {
+  const overview = { ...mockOverview, whitelist: ['/tmp/dev-b'] }
+  const mutate = cases.find(([n]) => n === 'clean-junk')[1]
+  const html = renderWithData(mutate, 'zh', overview)
+  const order = [...html.matchAll(/data-risk="(recommended|optional|review|protected)"/g)].map((m) => m[1])
+  assert.ok(order.length > 3, 'rows should render')
+  const rank = { recommended: 0, optional: 1, review: 2, protected: 3 }
+  const ranks = order.map((r) => rank[r])
+  assert.deepEqual([...ranks].sort((a, b) => a - b), ranks, `risk groups must stay grouped: ${order.join(',')}`)
+  assert.ok(order.includes('review'), 'needs-review rows present')
+  assert.equal(order[order.length - 1], 'protected', 'protected rows come last')
 })

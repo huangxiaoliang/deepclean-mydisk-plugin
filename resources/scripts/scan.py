@@ -4,6 +4,7 @@
 硬约束：只读。不删除、不移动、不修改任何文件；删除建议只生成命令文本。
 """
 import argparse
+import heapq
 import json
 import os
 import re
@@ -166,15 +167,106 @@ def belongs_to_installed(bid, installed, component_of=None, base=None):
     return None
 
 
+CACHE_DIR_NAMES = {"caches", "cache", "tmp", "temp", "code cache", "gpucache",
+                   "cachestorage", "service worker", "crashpad"}
+CACHE_SKIP_TOP = {"Documents", "Desktop", "Downloads", "Movies", "Music", "Pictures"}
+
+
+def cache_subdirs(container_path, max_depth=4, deadline=None):
+    """容器 Data 下的可再生缓存目录（不跟随链接、限制深度与时间预算）。
+
+    只按目录名命中 CACHE_DIR_NAMES，跳过个人目录顶层；命中后不再向下遍历。
+    """
+    base = os.path.join(container_path, "Data")
+    # 容器或 Data 本身是符号链接时不拆（否则会返回链接外的路径）。
+    if not os.path.isdir(base) or os.path.islink(base) or os.path.islink(container_path):
+        return []
+    hits = []
+    for root, dirs, _files in os.walk(base):
+        if deadline and time.time() > deadline:
+            break
+        rel = os.path.relpath(root, base)
+        if rel != "." and rel.split(os.sep)[0] in CACHE_SKIP_TOP:
+            dirs[:] = []
+            continue
+        depth = 0 if rel == "." else rel.count(os.sep) + 1
+        if depth > max_depth:
+            dirs[:] = []
+            continue
+        dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d))]
+        if os.path.basename(root).lower() in CACHE_DIR_NAMES:
+            hits.append(root)
+            dirs[:] = []
+    return hits
+
+
+def strict_descendant(path, parents):
+    """path 的 realpath 必须严格位于任一 parent 的 realpath 之下。"""
+    try:
+        real = os.path.realpath(path)
+    except OSError:
+        return False
+    for parent in parents or []:
+        try:
+            base = os.path.realpath(parent)
+        except OSError:
+            continue
+        if real != base and real.startswith(base + os.sep):
+            return True
+    return False
+
+
+def apply_leftover_cache_split(groups, splits):
+    """把 confirm 残留组里的缓存子目录拆成独立 safe 组。
+
+    splits: {baseId: {"kb": int, "paths": [str]}}，只含未安装、未运行 App 的缓存子目录。
+    拆出的组带 cachePart=True，客户端据此显示「App · 缓存」；原组保留其余数据并保持 confirm。
+    """
+    for base, split in list(splits.items()):
+        group = groups.get(base)
+        if group is None or group.get("bucket") != "confirm":
+            continue
+        if "进程正在运行" in (group.get("why") or ""):
+            continue
+        cache_kb = int(split.get("kb") or 0)
+        if cache_kb < 1024:  # 小于 1 MB 不值得单列
+            continue
+        raw_paths = list(split.get("paths") or [])
+        paths = [p for p in raw_paths if strict_descendant(p, group.get("paths"))]
+        # 拆分路径必须严格在容器之下；否则（自命中/符号链接逃逸）保留原 confirm 组不拆。
+        if not paths or len(paths) != len(raw_paths):
+            continue
+        split_id = f"{base}.cache"
+        groups[split_id] = {
+            "baseId": split_id,
+            "name": group.get("name") or group["baseId"],
+            "kb": cache_kb,
+            "count": len(split.get("paths") or []),
+            "bucket": "safe",
+            "why": "已卸载 App 的缓存子目录，可重建；文档/聊天等数据仍保留",
+            "paths": paths,
+            "bundleIds": [],
+            "cachePart": True,
+        }
+        group["kb"] = max(0, group["kb"] - cache_kb)
+        group["why"] = f"{group['why']}；其中缓存子目录已单独列出（可清理）"
+    # 缓存即全部内容时，原 confirm 组没有剩余数据
+    for key in [k for k, g in groups.items() if int(g.get("kb") or 0) <= 0]:
+        del groups[key]
+    return groups
+
+
 def classify(base, kb, rules):
+    """整容器一律「需确认」；safe 只来自 cache_subdirs() 拆出的缓存子目录。
+
+    卸载残留里可能混着文档/录制/下载内容，按名字猜「缓存为主」不够可靠；
+    宁可让用户多确认一次，也不要把整个容器默认勾进推荐清理。
+    """
     low = base.lower()
-    th = rules["thresholds"]
     if any(h in low for h in rules["mediaHints"]):
-        if kb >= th["mediaConfirmMb"] * 1024:
-            return "confirm", "媒体类 App 已卸载；体积较大，可能含已下载内容"
-        return "safe", "媒体类 App 已卸载，缓存为主"
+        return "confirm", "媒体类 App 已卸载；其中缓存子目录会单独列出（可清理），其余可能含已下载内容"
     if any(h in low for h in rules["meetingHints"]):
-        return "safe", "会议软件已卸载，缓存/日志为主"
+        return "confirm", "会议软件已卸载；其中缓存子目录会单独列出（可清理），录制/文档等需确认"
     if any(h in low for h in rules["userDataHints"]):
         return "confirm", "可能含聊天记录/文档/笔记"
     if any(h in low for h in rules["devHints"]):
@@ -268,7 +360,17 @@ def dev_sizes(home, rules):
     return out
 
 
-def browser_caches(home):
+# 浏览器进程子串（pgrep -fl 小写全文匹配）：宁可误标运行中（暂时不可清），不可漏标。
+BROWSER_PROC_HINTS = {
+    "Chrome": "google chrome",
+    "Edge": "microsoft edge",
+    "Firefox": "firefox",
+    "Safari": "safari",
+    "Arc": "arc",
+}
+
+
+def browser_caches(home, procs=""):
     """浏览器缓存（按浏览器/profile 细分；不碰书签、密码、历史）。"""
     # 只统计真正的缓存目录；绝不进入 Application Support（含书签/密码/历史）
     specs = [
@@ -282,7 +384,9 @@ def browser_caches(home):
     for name, path in specs:
         kb = du_one(path, timeout=60)
         if kb:
-            out.append({"name": name, "path": str(path), "kb": kb})
+            hint = BROWSER_PROC_HINTS.get(name, "")
+            out.append({"name": name, "path": str(path), "kb": kb,
+                        "running": bool(procs) and bool(hint) and hint in procs})
     return out
 
 
@@ -352,23 +456,63 @@ def special_clean(home):
     return out
 
 
-def big_files(home, min_mb):
-    expr = (
-        f'find "{home}" -xdev \\('
-        f' -path "{home}/Library/Containers" -o -path "{home}/Library/CloudStorage"'
-        f' -o -path "{home}/.Trash" -o -name node_modules -o -name .git'
-        f' \\) -prune -o -type f -size +{min_mb}M -print 2>/dev/null | head -40'
-    )
-    rows = []
-    for line in sh(expr, timeout=180).splitlines():
+def big_files(home, min_mb, top=15, deadline=None):
+    """全盘大文件：流式读取 find -print0 并维护 top-N 堆；超预算即截断（与 Windows 端同一约定）。
+
+    不能用 head 截断 find 输出：那会把「先遍历到的前 40 个」误当候选集，
+    真正的最大文件可能根本没进堆（Windows 端已是全量遍历 + 排序取 top-N）。
+    """
+    home = Path(home)
+    argv = [
+        "find", str(home), "-xdev", "(",
+        "-path", str(home / "Library" / "Containers"),
+        "-o", "-path", str(home / "Library" / "CloudStorage"),
+        "-o", "-path", str(home / "Library" / "Mobile Documents"),
+        "-o", "-path", str(home / "Library" / "Mail"),
+        "-o", "-path", str(home / "Library" / "Messages"),
+        "-o", "-path", str(home / ".Trash"),
+        "-o", "-name", "node_modules", "-o", "-name", ".git",
+        # App 包目录内部的文件不能出现在「大文件」里：搬走单个文件会破坏照片图库/Final Cut 等。
+        "-o", "-name", "*.photoslibrary", "-o", "-name", "*.photolibrary",
+        "-o", "-name", "*.sparsebundle", "-o", "-name", "*.fcpbundle",
+        "-o", "-name", "*.logicx", "-o", "-name", "*.band",
+        ")", "-prune", "-o", "-type", "f", "-size", f"+{min_mb}M", "-print0",
+    ]
+    heap = []  # (bytes, path, mtime, atime)，只保留最大的 top 个
+    truncated = False
+    try:
+        proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    except Exception:
+        return [], False
+    buf = b""
+    while True:
+        if deadline and time.time() > deadline:
+            truncated = True
+            proc.kill()
+            break
         try:
-            st = os.stat(line)
-            rows.append({"path": line, "bytes": st.st_size,
-                         "mtime": int(st.st_mtime), "atime": int(st.st_atime)})
+            chunk = proc.stdout.read1(65536)  # read1：有数据即返回，不等缓冲区填满
         except Exception:
-            continue
-    rows.sort(key=lambda x: -x["bytes"])
-    return rows
+            break
+        if not chunk:
+            break
+        buf += chunk
+        *ready, buf = buf.split(b"\0")
+        for raw in ready:
+            try:
+                p = raw.decode("utf-8", errors="replace")
+                st = os.stat(p)
+                item = (st.st_size, p, int(st.st_mtime), int(st.st_atime))
+                if len(heap) < top:
+                    heapq.heappush(heap, item)
+                elif item[0] > heap[0][0]:
+                    heapq.heapreplace(heap, item)
+            except Exception:
+                continue
+    proc.wait()
+    rows = [{"path": p, "bytes": b, "mtime": m, "atime": a}
+            for b, p, m, a in sorted(heap, reverse=True)]
+    return rows, truncated
 
 
 def big_category(path, home):
@@ -415,7 +559,7 @@ def scan(args):
         f_dev = ex.submit(dev_sizes, home, rules)
         f_apps = ex.submit(installed_apps, home)
         f_home = ex.submit(du_one, home, 300) if args.home_total else None
-        f_big = ex.submit(big_files, home, args.min_mb) if not args.quick else None
+        f_big = ex.submit(big_files, home, args.min_mb, args.top, time.time() + 180) if not args.quick else None
         _progress(8, "扫描 App 容器与缓存…")
 
         cont_sizes = f_cont.result()
@@ -431,7 +575,7 @@ def scan(args):
         _progress(75, "识别已安装 App")
         if f_home:
             r["disk"]["homeKb"] = f_home.result()
-        big = f_big.result() if f_big else []
+        big, big_trunc = f_big.result() if f_big else ([], False)
         _progress(88, "扫描大文件" if f_big else "汇总结果")
 
     r["installedCount"] = len(installed)
@@ -460,28 +604,6 @@ def scan(args):
 
     # 在用 App 的可再生缓存（仅 Caches/tmp；聊天类容器交给 special 专清）
     chat_prefixes = ("com.tencent.xinwechat", "com.tencent.weworkmac", "com.tencent.qq")
-    cache_names = {"caches", "cache", "tmp", "temp", "code cache", "gpucache",
-                   "cachestorage", "service worker", "crashpad"}
-    skip_top = {"Documents", "Desktop", "Downloads", "Movies", "Music", "Pictures"}
-
-    def _app_cache_dirs(cont_path):
-        base = os.path.join(cont_path, "Data")
-        if not os.path.isdir(base):
-            return []
-        hits = []
-        for root, dirs, _files in os.walk(base):
-            rel = os.path.relpath(root, base)
-            if rel != "." and rel.split(os.sep)[0] in skip_top:
-                dirs[:] = []
-                continue
-            depth = 0 if rel == "." else rel.count(os.sep) + 1
-            if depth > 4:
-                dirs[:] = []
-                continue
-            if os.path.basename(root).lower() in cache_names:
-                hits.append(root)
-                dirs[:] = []
-        return hits
 
     cache_candidates = []
     for c in cont:
@@ -490,7 +612,7 @@ def scan(args):
         low = c["baseId"].lower()
         if low.startswith("com.apple.") or any(low.startswith(p) for p in chat_prefixes):
             continue
-        for p in _app_cache_dirs(c["path"]):
+        for p in cache_subdirs(c["path"]):
             cache_candidates.append((c, p))
     procs = process_snapshot()
     app_caches = []
@@ -520,6 +642,36 @@ def scan(args):
         app_caches.sort(key=lambda x: -x["kb"])
     r["appCaches"] = app_caches[:80]
 
+    # 卸载残留的细粒度拆分：把 confirm 容器里的缓存子目录单独标为 safe，
+    # 剩余部分仍为 confirm（可能含文档/聊天/下载内容）。聊天类容器交给 special 专清，不拆。
+    split_deadline = time.time() + 25
+    split_candidates = []
+    for c in cont:
+        if c.get("installed") or c["bucket"] != "confirm":
+            continue
+        low = c["baseId"].lower()
+        if low.startswith("com.apple.") or any(low.startswith(p) for p in chat_prefixes):
+            continue
+        if any(str(b).lower() in procs for b in (c["bundleId"], c["baseId"])):
+            continue
+        for p in cache_subdirs(c["path"], deadline=split_deadline):
+            split_candidates.append((c, p))
+    leftover_splits = {}
+    if split_candidates:
+        _progress(84, "扫描残留缓存子目录")
+
+        def _split_size(pair):
+            c, p = pair
+            kb = du_one(p, timeout=30)
+            return (c, p, kb) if kb and kb >= 1024 else None
+
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            split_rows = [x for x in ex.map(_split_size, split_candidates) if x]
+        for c, p, kb in split_rows:
+            entry = leftover_splits.setdefault(c["baseId"], {"kb": 0, "paths": []})
+            entry["kb"] += kb
+            entry["paths"].append(p)
+
     # 归并 + 运行中检查
     groups = {}
     for c in cont:
@@ -537,6 +689,7 @@ def scan(args):
         if any(b.lower() in procs for b in g["bundleIds"]):
             g["bucket"] = "confirm"
             g["why"] += "；检测到相关进程正在运行，暂不可清理"
+    apply_leftover_cache_split(groups, leftover_splits)
     r["leftoverGroups"] = sorted(groups.values(), key=lambda x: -x["kb"])
 
     # 缓存
@@ -547,7 +700,7 @@ def scan(args):
     r["caches"] = sorted(caches, key=lambda x: -x["kb"])
     r["devCaches"] = dev
     r["devPaths"] = sorted({d["path"] for d in dev})
-    r["browsers"] = browser_caches(home)
+    r["browsers"] = browser_caches(home, procs)
     _progress(90, "分析微信/企业微信/QQ 数据")
     r["special"] = special_clean(home)
 
@@ -557,7 +710,9 @@ def scan(args):
     r["bigFiles"] = [{"path": b["path"], "kb": b["bytes"] // 1024,
                       "mtime": b.get("mtime", 0), "atime": b.get("atime", 0),
                       "ext": os.path.splitext(b["path"])[1].lower(),
-                      "category": big_category(b["path"], home)} for b in big[: args.top]]
+                      "category": big_category(b["path"], home)} for b in big]
+    r["truncated"] = big_trunc
+    r["bigFilesTop"] = args.top
     _progress(100, "完成")
     r["elapsed"] = round(time.time() - t0, 1)
     r["estimate"] = estimate_of(r, args.min_leftover_mb)
@@ -609,6 +764,8 @@ def render_md(r, args):
     if r["disk"]["homeKb"]:
         a(f"- 个人文件夹：{human(r['disk']['homeKb'])}")
     a(f"- 扫描耗时：{r['elapsed']}s" + ("（快速模式：未扫描大文件）" if args.quick else ""))
+    if r.get("truncated"):
+        a("- ⚠️ 大文件扫描超过时间预算，结果可能不全")
     a("- 扫描范围：`~/Library/Containers`、`~/Library/Caches`、`~/.cache`、开发缓存、"
       "`~/Library/CloudStorage`、`~/.Trash`、大文件；**不含** `/private/var`、`/Library`、其他用户。")
     if status == "denied":
@@ -644,7 +801,7 @@ def render_md(r, args):
                          "note": f"{g['why']}；{g['count']} 个目录；示例 `{g['paths'][0]}`"})
         return rows
 
-    table("一、推荐清理（已卸载媒体/会议类应用，缓存为主）", group_rows("safe"))
+    table("一、推荐清理（已卸载 App 的可再生缓存子目录）", group_rows("safe"))
     table("二、需确认（可能含聊天记录/文档/笔记/下载内容）", group_rows("confirm"))
     if small:
         a(f"> 另有 **{len(small)}** 个小于 {args.min_leftover_mb} MB 的残留碎片，"
@@ -673,7 +830,7 @@ def render_md(r, args):
     table("六、云盘目录（不建议清理）",
           [{"path": c["path"], "kb": c["kb"], "note": "云盘同步目录，**不要直接删文件**"}
            for c in r["cloudStorage"]])
-    table(f"七、大文件（> {args.min_mb} MB）",
+    table(f"七、大文件（> {args.min_mb} MB，最大的 {args.top} 个）",
           [{"path": b["path"], "kb": b["kb"], "note": b["category"]} for b in r["bigFiles"]])
 
     a("## 八、不建议清理")
