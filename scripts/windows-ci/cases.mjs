@@ -10,7 +10,7 @@ import { once } from 'node:events'
 import { moveToTrash, restoreMoved, moveAcrossDevices, quarantineSummary } from '../../lib/clean.js'
 
 function fixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dc-native-中文-'))
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dc-native-中文-')))
   const env = { DSH_HOME: path.join(root, 'state'), DEEPCLEAN_TRASH_DIR: path.join(root, 'trash'),
     USERPROFILE: path.join(root, 'profile'), HOME: path.join(root, 'profile'),
     LOCALAPPDATA: path.join(root, 'profile', 'AppData', 'Local'), APPDATA: path.join(root, 'profile', 'AppData', 'Roaming') }

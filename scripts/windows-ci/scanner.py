@@ -37,7 +37,7 @@ class BrowserScan(unittest.TestCase):
                 source.write_bytes(b"synthetic-cache" * 1024)
                 original = source.read_bytes()
                 args = argparse.Namespace(home=str(home), quick=True, top=20, min_mb=1,
-                                          min_leftover_mb=10, redact=True)
+                                          min_leftover_mb=10, redact=False)
                 # Every discovery path stays inside this disposable fixture.
                 env = {"USERPROFILE": str(home), "LOCALAPPDATA": str(local),
                        "APPDATA": str(roaming), "PROGRAMDATA": str(programdata)}

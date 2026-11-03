@@ -7,7 +7,7 @@ import { moveAcrossDevices, moveToTrash, restoreMoved } from '../lib/clean.js'
 import { isProtected } from '../lib/platform.js'
 
 function fixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dc-safety-'))
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dc-safety-')))
   const previous = { home: process.env.DSH_HOME, trash: process.env.DEEPCLEAN_TRASH_DIR }
   process.env.DSH_HOME = path.join(root, 'state')
   process.env.DEEPCLEAN_TRASH_DIR = path.join(root, 'trash')

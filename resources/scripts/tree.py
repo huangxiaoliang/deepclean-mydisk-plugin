@@ -99,6 +99,17 @@ def is_package_dir(name):
     return any(low.endswith(suffix) for suffix in PACKAGE_SUFFIXES)
 
 
+def is_app_data_path(path):
+    parts = [p.lower() for p in Path(os.path.abspath(str(path))).parts]
+    pairs = set(zip(parts, parts[1:]))
+    if pairs & {("library", "application support"), ("library", "containers"),
+                ("library", "group containers"), ("library", "mail"), ("library", "messages")}:
+        return True
+    home = Path(os.environ.get("HOME") or Path.home())
+    roots = [home / "AppData"] + [Path(os.environ[k]) for k in ("LOCALAPPDATA", "APPDATA") if os.environ.get(k)]
+    return "windowsapps" in parts or is_cloud_path(path, roots)
+
+
 def inspect_tree(target):
     logical = os.name == 'nt'
     dirs = {}
@@ -154,7 +165,7 @@ def inspect_tree(target):
                     children.append(dict(name=e.name, path=e.path, kb=size_b / 1024,
                                          isDir=True, partial=sub_un > 0))
                     continue
-                hidden_child = hidden or is_package_dir(e.name)
+                hidden_child = hidden or is_package_dir(e.name) or is_app_data_path(e.path)
                 size_b, sub_heap, sub_un, sub_sk, sub_children = walk(e.path, hidden_child)
                 if sub_children is None:
                     unavailable += 1
@@ -185,7 +196,8 @@ def inspect_tree(target):
                                      isDir=False, partial=False))
         return total, heap, unavailable, skipped, children
 
-    _total, heap, unavailable, skipped, children = walk(target)
+    root_hidden = is_app_data_path(target) or is_cloud_path(target, clouds) or any(is_package_dir(p) for p in Path(target).parts)
+    _total, heap, unavailable, skipped, children = walk(target, root_hidden)
     if children is None:
         return None
     if len(dirs) > MAX_DIRS:

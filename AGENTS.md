@@ -10,7 +10,7 @@ DSH 插件：原生侧边栏磁盘空间工具（macOS / Windows），只读体�
 | 文件 | 职责 |
 |---|---|
 | `lib/index.js` | host 入口：**4 个只读模型工具**（`disk_check_permissions` / `disk_audit` / `disk_inspect` / `disk_self_test`）+ 27 条 HTTP 路由 + `scan`/`photos`/`move` 三个状态机 + 平台分支；`pruneReport` 在清理成功后增量剪枝内存报告（连续清理不重扫）；`cleanAnnotations` 只给审计记录补「清理时报告里的大小/分类」，不参与放行；`/api/clean` 超过 200 项时由 `splitBatches` 服务端分片（返回 `batchIds`），照片清理后 `prunePhotoResult` 剪枝；`/api/quarantine` 汇总隔离区，`/api/quarantine/purge` 是两阶段释放的第二阶段；`cloudRoots`/`isCloudBackedPath`/`moveBlockReason` 保护云盘与 App 数据目录 |
-| `lib/clean.js` | **唯一移动用户文件的地方**：`moveToTrash` / `restoreMoved` / `undoBatch` / `purgeMoved`、废纸篓路径、审计日志（超 5MB 自动轮转保留最近一半，`DEEPCLEAN_AUDIT_MAX_BYTES` 可覆盖）、单批上限 200；`moveToTrash(paths, allowed, { annotations })` 的 annotations 只写进审计（旧日志无此字段）；`restoreMoved(moved, batchId, { onConflict, recreateParents })` 返回 `{ results, auditOk }`，逐项带 `code`（`exists`/`notfound`/`changed`/`eacces`/`exdev`/`symlink`/`io`）；`quarantineRoot`/`quarantineSummary` 只读统计本插件批次占用；`purgeMoved` 删完会收掉空批次目录并返回 `auditOk` |
+| `lib/clean.js` | **唯一移动用户文件的地方**：`moveToTrash` / `restoreMoved` / `undoBatch` / `purgeMoved`、废纸篓路径、审计日志（超 5MB 自动轮转，保留近期记录与所有待恢复批次依据（活跃批次多时可超过阈值），`DEEPCLEAN_AUDIT_MAX_BYTES` 可覆盖）、单批上限 200；`moveToTrash(paths, allowed, { annotations })` 的 annotations 只写进审计（旧日志无此字段）；`restoreMoved(moved, batchId, { onConflict, recreateParents })` 返回 `{ results, auditOk }`，逐项带 `code`（`exists`/`notfound`/`changed`/`eacces`/`exdev`/`symlink`/`io`）；`quarantineRoot`/`quarantineSummary` 只读统计本插件批次占用；`purgeMoved` 删完会收掉空批次目录并返回 `auditOk` |
 | `lib/platform.js` | 宿主侧白名单二次校验 `isProtected`（win32 用 `path.win32` 语义）；`parseTreeOutput` 目前只被测试引用 |
 | `lib/client.js` | 浏览器端单文件 bundle（`window.__ModuleLoader__.load`，内嵌 CSS / SVG / Phosphor 图标，无构建）；含 **AI 只读解释入口**：把面板已算好的报告数据拼成提示词，经 client `sessions.binding(id).session.prompt(..., 'queue')` 注入当前会话，服务缺失时降级为复制提示词 |
 
@@ -33,7 +33,7 @@ DSH 插件：原生侧边栏磁盘空间工具（macOS / Windows），只读体�
 | `scripts/preview.mjs` | 隔离预览：`127.0.0.1:4173`，加载真实 `lib/client.js`，宿主 API 全内存 mock，路径虚构在 `/demo`，不碰用户文件；`DEEPCLEAN_PREVIEW_FDA=denied` 预览 FDA 引导卡 |
 | `scripts/sync-scanner.sh` | 从 skill 仓库同步 `scan.py` / `deepclean.py` / `platforms/` / `rules.json`（**不含** `photos.py` / `tree.py` / `photos-windows.ps1`） |
 | `scripts/acceptance-windows.ps1` | Windows 真机验收（输出 `acceptance-report/`） |
-| `tests/` | `node:test` **151** 个用例：pages 68 / host 34 / clean 20 / file-safety 11 / client 8 / windows-regressions 3 / scanner 5 / cancel 2 |
+| `tests/` | `node:test` 覆盖 pages / host / clean / file-safety / client / windows-regressions / scanner / cancel / purge-interaction；实际数量与平台跳过项以 `npm test` 输出为准 |
 | `tests/photos-regressions.py` | 照片解码与只读回归（由 `tests/scanner.test.mjs` 调用） |
 | `tests/macos-scanner-regressions.py` | macOS `big_files` 回归：流式 top-N 无遍历顺序偏置、prune、预算截断（Windows CI 自动跳过） |
 | `tests/windows-scanner-regressions.py` | Windows 扫描器纯函数回归：`big_files` 的 mtime/排序/预算截断、`cleanable`/`admin` 过滤（由 `tests/scanner.test.mjs` 调用，macOS 也能跑） |
@@ -45,7 +45,7 @@ DSH 插件：原生侧边栏磁盘空间工具（macOS / Windows），只读体�
 
 ## 常用命令
 ```bash
-npm test                                   # 151 个用例（macOS：149 pass + 2 个 Windows 专用 skip）
+npm test                                   # 全量测试（原生用例按平台跳过）
 node --check lib/index.js lib/client.js lib/clean.js lib/platform.js scripts/preview.mjs
 python3 resources/scripts/deepclean.py --self-test          # 扫描器自检
 python3 resources/scripts/deepclean.py --check-permissions  # 权限检查
@@ -70,7 +70,7 @@ node scripts/preview.mjs                                    # http://127.0.0.1:4
 - 搬家允许集合有两个来源，共享 10 分钟新鲜度：体检报告 `bigFiles`，或 tree 缓存中新鲜目录统计的 `bigFiles`；跨盘搬家必须复制后 **SHA-256 + 大小**双向校验，失败删除临时文件并保留原文件；
 - **两阶段释放**：清理只移出（可用空间不变）；释放必须走 `/api/quarantine/purge`（永久删除本批次/全部）并二次确认，只能删 `purgeMoved` 边界内的本插件批次条目；首页/历史展示隔离区/废纸篓占用；超过 200 项由服务端分片，一次操作可能产生多个批次（`batchIds`）；
 - **云盘 / App 数据目录不参与搬家**：`tree.py`/`photos.py` 排除云盘根与包目录，宿主再用 `cloudRoots`/`moveBlockReason` 二次校验；`DEEPCLEAN_CLOUD_ROOTS` 只用于补充/测试；
-- 审计日志 `$DSH_HOME/deepclean-audit.log`（`clean` / `move` / `restore` / `purge`），历史 `$DSH_HOME/deepclean-history.json`（最多 100 条）；批次读取最近 20 条；`clean` 条目的 `moved[].kb/category` 是新增的审计标注（旧日志可能没有），只用于历史趋势/复清展示，不参与放行；
+- 审计日志 `$DSH_HOME/deepclean-audit.log`（`clean` / `move` / `restore` / `purge`），历史 `$DSH_HOME/deepclean-history.json`（最多 100 条）；批次展示最近 20 条及所有仍可恢复批次，恢复/释放操作使用完整索引；`clean` 条目的 `moved[].kb/category` 是新增的审计标注（旧日志可能没有），只用于历史趋势/复清展示，不参与放行；
 - **恢复/撤销边界**：`restoreMoved` 只接受「审计记录里、`to` 位于 `trashRoots()` 下的 `deepclean-*` 批次目录、且 realpath 不逃逸」的条目；父目录是符号链接一律拒绝；`/api/undo` 会把已恢复条目从内存批次剔除（避免重试永远报 notfound、撤销入口清不掉）；默认拒绝覆盖原位置同名文件，只有显式 `onConflict:'rename'` 才另存为「名称 (restored)」；可为审计里的原路径重建缺失父目录，但逐级拒绝符号链接祖先；部分失败必须按 `results[].code` 如实返回，UI 不得报「已恢复」；审计写入失败时 `moveToTrash`/`restoreMoved` 返回 `auditOk:false`，调用方必须提示「历史里可能看不到恢复记录」；
 - **残留拆分边界**：只对「未安装、未运行、非系统、非聊天类」容器的 confirm 组拆缓存子目录；拆出的 safe 组才进允许集合，原容器路径仍不进；拆分路径必须 realpath 严格位于容器之下（自命中/符号链接逃逸一律不拆）；Windows 在 `installed_apps()` 为空时 fail-closed；不要放宽成「confirm 整组可清」；
 - **LLM 只做只读解释**：提示词由 `lib/client.js` 用已算好的报告数据拼接，注入当前会话（`queue`）；模型输出不进入允许集合、不触发任何写操作；`disk_inspect` 只读（lstat/readdir + 一次 Spotlight 查询，不跟随符号链接、不写文件）；不要给模型新增写工具或把 `prompt` 结果用于放行判断；
