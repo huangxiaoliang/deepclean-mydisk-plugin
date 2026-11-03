@@ -4,10 +4,10 @@ DSH 插件：macOS / Windows 原生侧边栏磁盘工具。**扫描只读，清�
 
 DeepClean MyDisk is a DSH plugin for macOS and Windows. It audits disk usage read-only, then moves the files you select to the Trash or a quarantine folder with undo. Cleanup is two-stage: moving files does not free space until you permanently delete a batch after a second confirmation.
 
-> 仓库：https://github.com/huangxiaoliang/deepclean-mydisk-plugin
-> 安装：`dsh plugin --profile <name> add deepclean-mydisk`（npm）；也可 `add github:huangxiaoliang/deepclean-mydisk-plugin` 或本地 `link:/绝对路径`
-> 反馈：GitHub Issues（https://github.com/huangxiaoliang/deepclean-mydisk-plugin/issues/new/choose）；安全问题请按 [SECURITY.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/SECURITY.md) 私下发邮件
-> 插件详情：[中文](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/docs/plugin/DETAIL.zh.md) · [English](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/docs/plugin/DETAIL.en.md)；更新日志：[CHANGELOG.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/CHANGELOG.md)
+- 仓库：[huangxiaoliang/deepclean-mydisk-plugin](https://github.com/huangxiaoliang/deepclean-mydisk-plugin)
+- 安装：`dsh plugin --profile <name> add deepclean-mydisk`（npm）；也可 `add github:huangxiaoliang/deepclean-mydisk-plugin` 或本地 `link:/绝对路径`
+- 反馈：[GitHub Issues](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/issues/new/choose) · 安全问题按 [SECURITY.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/SECURITY.md) 私下发邮件
+- 插件详情：[中文](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/docs/plugin/DETAIL.zh.md) · [English](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/docs/plugin/DETAIL.en.md) · [更新日志](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/CHANGELOG.md)
 
 ## 安装
 
