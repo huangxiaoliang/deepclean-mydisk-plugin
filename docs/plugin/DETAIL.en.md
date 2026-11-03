@@ -50,7 +50,7 @@ Add `--profile <name>` for a named profile. This installs the published npm pack
 
 ## Feedback and support
 
-- Bugs and usage questions: open a GitHub issue at https://github.com/huangxiaoliang/deepclean-mydisk-plugin/issues/new/choose
+- Bugs and usage questions: open a [GitHub issue](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/issues/new/choose).
 - Security issues (deleting outside the allow-set, path escapes, failed restores, privacy leaks): do not open a public issue; email **coolway.me@gmail.com** with the version, reproduction and impact.
 - Before filing, restart DSH and include the plugin version, DSH version, OS, error code or failing stage, and redacted logs or screenshots. The audit log lives at `$DSH_HOME/deepclean-audit.log`.
 - Never paste full disk paths, user names, file names or chat content; see [SUPPORT.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/SUPPORT.md) and [SECURITY.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/SECURITY.md).
