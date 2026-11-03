@@ -86,7 +86,7 @@
 
 ### 2.1 现有接入面（代码事实）
 
-- **5 个入口**（都在客户端拼提示词后注入当前会话）：首页「让 AI 解读这次体检」、清理页逐项「问 AI」、清理前「复核这 n 项」、历史「让 AI 分析趋势」、大文件「这是什么」（[lib/client.js:695-930](../lib/client.js)、[README.md:81](../README.md)）。
+- **5 个入口**（都在客户端拼提示词后注入当前会话）：首页「让 AI 解读这次体检」、清理页逐项「问 AI」、清理前「复核这 n 项」、历史「让 AI 分析趋势」、大文件「这是什么」（[lib/client.js:695-930](../lib/client.js)、[README.md](../README.md) 的「AI 辅助（只读解释）」）。
 - **5 个只读工具**（宿主注册，模型可调用）：`disk_check_permissions` / `disk_audit` / `disk_report` / `disk_inspect` / `disk_self_test`（[lib/index.js:1055-1125](../lib/index.js)）。
 - **唯一写入口**：`/api/clean` → `moveToTrash`；永久删除只能走 `/api/quarantine/purge`，且只在本插件批次边界内（[lib/clean.js:362](../lib/clean.js)）。
 - **LLM 的边界**：输出不进入 `allowedPaths`、不触发任何写操作、不改变分档（`AGENTS.md` 安全硬约束；docs/review/p0-fix-plan-2026-11-02.md:394 明确「用 AI 判断哪些能清」是被否决的方案）。

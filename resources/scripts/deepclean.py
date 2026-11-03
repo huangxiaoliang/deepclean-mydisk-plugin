@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""deepclean-mydisk 统一入口（v0.4.0）。
+"""deepclean-mydisk 统一入口（v0.5.0）。
 
 - macOS：调用 scripts/scan.py（成熟实现，行为与 v0.3.x 一致）
 - Windows：调用 scripts/platforms/windows.py（只读，PowerShell 隔离区方案）
@@ -7,7 +7,7 @@
 用法：
   python deepclean.py                       # 自动识别平台
   python deepclean.py --quick --redact      # 透传给平台脚本
-  python deepclean.py --platform windows --self-test
+  python deepclean.py --platform windows --self-test   # 仅限 Windows 宿主；跨平台合成扫描用 scripts/windows-ci/scanner.py
 """
 import argparse
 import subprocess

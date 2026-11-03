@@ -9,7 +9,7 @@ body:
         感谢反馈。提交前请确认：
 
         - 已重启 DSH（插件升级或修改后必须重启）；
-        - 已运行 `python3 resources/scripts/deepclean.py --self-test` 与 `--check-permissions`；
+        - 已运行自检（有源码目录时：`python3 resources/scripts/deepclean.py --self-test` 与 `--check-permissions`；DSH 安装版可用面板「设置 → 权限检查」）；
         - 日志和截图已脱敏：不要贴完整路径、用户名、文件名或聊天记录。
 
         **安全类问题**（越权删除、路径逃逸、恢复失败、隐私泄露等）不要公开提 Issue，
@@ -21,7 +21,7 @@ body:
     attributes:
       label: 插件版本
       description: 设置页可见，或运行 `dsh plugin list` 查看
-      placeholder: 0.12.0
+      placeholder: 0.12.1
     validations:
       required: true
 
