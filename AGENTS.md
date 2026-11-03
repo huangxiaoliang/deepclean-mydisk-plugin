@@ -56,6 +56,8 @@ DSH 插件：原生侧边栏磁盘空间工具（macOS / Windows），只读体�
 | `scripts/windows-ci/` + `docs/windows-ci.md` | Windows CI 的用例驱动、扫描器与卷构造脚本 |
 | `.github/workflows/tests.yml` | macOS + Windows CI（Node 24 + Python 3.12，只跑 `npm test`） |
 | `.github/workflows/windows-acceptance.yml` | Windows 原生验收矩阵：`windows-2022` / `windows-2025` / `windows-11-arm`（Windows 11 Arm64 客户端镜像；无测试卷时显式 SKIP 跨卷用例），详见 `docs/windows-ci.md` |
+| `.github/ISSUE_TEMPLATE/` + `SUPPORT.md` / `SECURITY.md` | 反馈渠道：GitHub Issues 问题表单、支持说明与日志脱敏要求；安全问题走邮件私下报告（coolway.me@gmail.com） |
+| `CONTRIBUTING.md` | 面向开发者的环境、目录结构、常用命令、测试与 CI、HTTP API、设计材料、扫描器同步与发布流程；README 只保留用户内容 |
 
 ## AI 辅助清理（只读解释，不参与放行）
 
