@@ -147,6 +147,6 @@ node scripts/preview.mjs                                    # http://127.0.0.1:4
 
 ## 本地安装（DSH profile）
 ```bash
-dsh plugin --profile desktop add link:/Users/hxl/Documents/deepseek-harness/plugins/deepclean-mydisk-plugin
+dsh plugin --profile desktop add link:/path/to/deepclean-mydisk-plugin
 ```
 修改 host 或 client 代码后需要重启 DSH。
