@@ -429,6 +429,40 @@ test('seeded drill-down keeps cloud counters, hard-link metadata and caps', asyn
   }
 })
 
+test('cloud roots follow the platform branch and the injected extra roots', () => {
+  const savedPlatform = process.platform
+  const savedHome = process.env.HOME
+  const savedOneDrive = process.env.OneDrive
+  const savedExtra = process.env.DEEPCLEAN_CLOUD_ROOTS
+  const profile = path.join(root, 'cloud-roots-branch')
+  const onedrive = path.join(profile, 'Docs', 'OneDrive')
+  fs.mkdirSync(onedrive, { recursive: true })
+  try {
+    process.env.HOME = profile
+    process.env.OneDrive = onedrive
+    delete process.env.DEEPCLEAN_CLOUD_ROOTS
+    // macOS 只认 ~/Library/CloudStorage 与 Mobile Documents，OneDrive 变量是 Windows 分支；
+    // 这两个断言锁住差异，避免用例在 Windows 上变绿而 macOS 上失效。
+    Object.defineProperty(process, 'platform', { value: 'darwin' })
+    const mac = plugin.cloudRoots()
+    assert.ok(mac.includes(path.join(profile, 'Library', 'CloudStorage')), 'macOS resolves the CloudStorage root')
+    assert.ok(!mac.includes(onedrive), 'macOS must ignore the Windows-only OneDrive variables')
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+    assert.ok(plugin.cloudRoots().includes(onedrive), 'Windows honours the OneDrive variable')
+    process.env.DEEPCLEAN_CLOUD_ROOTS = JSON.stringify([onedrive])
+    Object.defineProperty(process, 'platform', { value: 'darwin' })
+    assert.ok(plugin.cloudRoots().includes(onedrive), 'the injected extra root works on every platform')
+  } finally {
+    Object.defineProperty(process, 'platform', { value: savedPlatform })
+    if (savedHome === undefined) delete process.env.HOME
+    else process.env.HOME = savedHome
+    if (savedOneDrive === undefined) delete process.env.OneDrive
+    else process.env.OneDrive = savedOneDrive
+    if (savedExtra === undefined) delete process.env.DEEPCLEAN_CLOUD_ROOTS
+    else process.env.DEEPCLEAN_CLOUD_ROOTS = savedExtra
+  }
+})
+
 test('refreshing a subtree updates the cached parent row', async () => {
   const home = process.env.HOME
   process.env.HOME = root

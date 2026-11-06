@@ -120,7 +120,7 @@ node scripts/preview.mjs                                    # http://127.0.0.1:4
 - `/api/tree` 走 `tree.py` + 60s 缓存（2000 条 LRU）；播种时先写子目录、最后写目标，且容量大于单次可播种的 500 层，目标不会被自己的 `dirs` 挤出；命中时刷新 LRU 顺序；子树刷新会同步修正父级缓存行的大小；客户端断开连接会通过 `AbortSignal` 杀掉 `tree.py`（`停止加载`）；错误带稳定 `errorCode`（`tree_missing`/`tree_denied`/`tree_outside`/`tree_symlink`/`tree_timeout`/`tree_failed`）供中英文界面本地化；使用独立子进程句柄，浏览目录**不会**取消正在进行的扫描。
 - **AI 是单向投递**：只能把提示词排入当前会话，读不到模型回复；不要设计依赖模型输出的自动勾选、自动清理或结构化回填。
 - 新增/修改 AI 入口时必须复用 `lib/client.js` 的 `untrustedText` / `safeDisplayPath` / `aiRules`，中英文规则成对修改；不得给模型新增写工具，也不得把 `prompt` 结果用于 `allowedPaths` / `isProtected` / 新鲜度判断。
-- 测试按平台跳过：共 **205** 个用例；macOS 跳 2 个 Windows 专用 HTTP 用例（`tests/host.test.mjs` 的 Windows tree / thumbnail），实测 **203 pass / 2 skip**；Windows 跳 7 个 macOS / 非 Windows 宿主专用用例（3 个 symlink 清理/恢复、1 个跨盘复制链接、tree 拒家目录外、permissions、`--platform windows` 拒绝用例），实测 **198 pass / 7 skip**。CI 两端都会跑全量。
+- 测试按平台跳过：共 **206** 个用例；macOS 跳 2 个 Windows 专用 HTTP 用例（`tests/host.test.mjs` 的 Windows tree / thumbnail），实测 **204 pass / 2 skip**；Windows 跳 7 个 macOS / 非 Windows 宿主专用用例（3 个 symlink 清理/恢复、1 个跨盘复制链接、tree 拒家目录外、permissions、`--platform windows` 拒绝用例），实测 **199 pass / 7 skip**。CI 两端都会跑全量。
 - 换行统一 **LF**（`.gitattributes` 的 `* text=auto eol=lf`）：页面测试用源码字符串替换注入视图，CRLF checkout 会让断言失配；不要改该文件或改用会转 CRLF 的克隆配置。
 
 ## 已知缺口（改代码前先看，均为代码事实）
