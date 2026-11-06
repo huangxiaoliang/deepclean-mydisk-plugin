@@ -61,8 +61,8 @@ node scripts/preview.mjs                                   # 隔离预览
 
 ## 测试与 CI
 
-- `npm test`（`node --test`）当前 **205** 个用例（平台相关用例会跳过，实际数量与跳过项以 `npm test` 输出为准）；
-- 平台专用用例会跳过：macOS 跳过 2 个 Windows 专用 HTTP 用例（203 pass / 2 skip），Windows 跳过 7 个 macOS / 非 Windows 宿主专用用例（198 pass / 7 skip）；
+- `npm test`（`node --test`）当前 **206** 个用例（平台相关用例会跳过，实际数量与跳过项以 `npm test` 输出为准）；
+- 平台专用用例会跳过：macOS 跳过 2 个 Windows 专用 HTTP 用例（204 pass / 2 skip），Windows 跳过 7 个 macOS / 非 Windows 宿主专用用例（199 pass / 7 skip）；
 - CI（[.github/workflows/tests.yml](.github/workflows/tests.yml)）在 macOS + Windows 上跑 Node 24 + Python 3.12，只执行 `npm test`；
 - [.github/workflows/windows-acceptance.yml](.github/workflows/windows-acceptance.yml) 额外在 windows-2022 / windows-2025 / windows-11-arm 上跑原生验收，详见 [docs/windows-ci.md](docs/windows-ci.md)；
 - 页面测试是 SSR 渲染（`renderToString`），不是浏览器 E2E；真实交互请用隔离预览人工验收。
