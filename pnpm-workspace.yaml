@@ -1,0 +1,7 @@
+# pnpm 11 不再从 .npmrc 读取 pnpm 专用设置，提升相关的键必须写在这里。
+# 默认的隔离式 node_modules 在 Windows + Node 24 下会让依赖解析失败：
+#   - @deepseek-ai/dsh-tools 找不到 peer（@deepseek-ai/cordis / @deepseek-ai/schemastery）
+#   - react-dom 找不到同级 scheduler（scripts/preview.mjs 启动即崩）
+# 提升到根 node_modules 后 node --test 与隔离预览都能直接跑；CI 用 npm install，行为一致。
+publicHoistPattern:
+  - '*'

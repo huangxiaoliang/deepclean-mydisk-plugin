@@ -11,6 +11,8 @@ import { setTimeout as delay } from 'node:timers/promises'
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dc-win-python-'))
 process.env.DSH_HOME = root
+// 探测顺序里的显式覆盖项要保持可控，避免开发者环境里的 PYTHON 影响断言。
+delete process.env.PYTHON
 const { apply } = await import('../lib/index.js')
 test.after(() => fs.rmSync(root, { recursive: true, force: true }))
 
@@ -104,6 +106,41 @@ test('Windows scan gives recovery steps when no usable Python is found', async (
   assert.equal(result.errorCode, 'python_unavailable')
   assert.match(result.error, /找不到可用的 Python 3.*python --version.*重启 DSH/)
   assert.deepEqual(launches.map(([cmd]) => cmd), ['py', 'python', 'python3'])
+})
+
+test('Windows scan honors an explicit PYTHON executable', async (t) => {
+  const exe = path.join(root, 'custom-python', 'python.exe')
+  fs.mkdirSync(path.dirname(exe), { recursive: true })
+  fs.writeFileSync(exe, '')
+  process.env.PYTHON = exe
+  try {
+    const { scan: result, launches } = await scan(t, (cmd, args) => {
+      if (cmd !== exe) return missing(cmd)
+      return args.includes('-c') ? available : finishScan(args)
+    })
+    assert.equal(result.status, 'done', result.error)
+    assert.equal(launches[0][0], exe, 'the explicit override must be probed first')
+    assert.deepEqual(launches.map(([cmd]) => cmd), [exe, exe])
+  } finally {
+    delete process.env.PYTHON
+  }
+})
+
+test('Windows scan falls back to the Python shipped with DSH when PATH has no usable launcher', async (t) => {
+  const exe = path.join(root, 'dsh-runtimes', 'dsh-primary-runtime', 'dependencies', 'python', 'python.exe')
+  fs.mkdirSync(path.dirname(exe), { recursive: true })
+  fs.writeFileSync(exe, '')
+  try {
+    const { scan: result, launches } = await scan(t, (cmd, args) => {
+      if (cmd === 'py') return missing(cmd)
+      if (cmd !== exe) return { code: 0, out: '' } // PATH 上的 Store 占位别名：能启动但不是 Python
+      return args.includes('-c') ? available : finishScan(args)
+    })
+    assert.equal(result.status, 'done', result.error)
+    assert.deepEqual(launches.map(([cmd]) => cmd), ['py', 'python', 'python3', exe, exe])
+  } finally {
+    fs.rmSync(path.join(root, 'dsh-runtimes'), { recursive: true, force: true })
+  }
 })
 
 test('Windows scan preserves a scanner failure once Python is selected', async (t) => {
