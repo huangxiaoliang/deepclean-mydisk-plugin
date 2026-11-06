@@ -35,7 +35,7 @@ The allow-set is re-checked in the host. Protected paths always win, symbolic li
 ## Requirements
 
 - macOS: Full Disk Access plus `python3`; the scanner uses built-in tools such as `du`, `plutil`, and `sips`.
-- Windows: `py -3` or `python`, with PowerShell for photo decoding; some system directories need administrator rights.
+- Windows: Python 3.9 or later (`py -3`, `python`, or `python3`), with PowerShell for photo decoding; some system directories need administrator rights.
 - DSH 0.2.x (>=0.2.1-rc.5, <0.3.0). Linux is unverified.
 
 ## Install

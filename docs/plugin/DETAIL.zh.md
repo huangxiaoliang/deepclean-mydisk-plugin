@@ -35,7 +35,7 @@ DeepClean MyDisk 是 macOS / Windows 上的 DSH 磁盘插件：先做**只读**�
 ## 环境要求
 
 - macOS：需要「完全磁盘访问」与 `python3`；扫描器使用系统自带的 `du`、`plutil`、`sips` 等工具。
-- Windows：需要 `py -3` 或 `python`；照片解码使用 PowerShell；部分系统目录需要管理员权限。
+- Windows：需要 Python 3.9 或更新版本（`py -3`、`python` 或 `python3`）；照片解码使用 PowerShell；部分系统目录需要管理员权限。
 - DSH 0.2.x（≥0.2.1-rc.5，<0.3.0）。Linux 未验收。
 
 ## 安装

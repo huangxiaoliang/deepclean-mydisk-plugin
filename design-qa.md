@@ -52,3 +52,22 @@ final result: passed
 Windows 真机、DSH 重启后的实际宿主加载、暗色主题完整视觉验收仍需另行进行。没有据此宣称全平台或完整无障碍合规。
 
 P3：可进一步统一图标字重、工具品牌识别和不同系统的字体度量；不阻塞本次页面交付。
+
+## 空间页「潮汐剖面」验收（2026-11-06）
+
+final result: passed
+
+- [选定概念稿](/Users/hxl/.codex/generated_images/01a1afd4-9c21-7af0-aaa0-970f0334108c/exec-1f964b17-4141-4cc9-817b-5ed69110b91f.png) 为 980 × 1605 像素。将其缩至 441 × 722，与隔离预览的根目录选中 `Library` 状态同尺寸并排。浏览器 CSS 视口和截图均为 441 × 722，滚动条占 15 像素。[整页对照](/Users/hxl/.codex/visualizations/2026/11/06/01a1afd4-9c21-7af0-aaa0-970f0334108c/deepclean-tide/comparison.png) · [操作区对照](/Users/hxl/.codex/visualizations/2026/11/06/01a1afd4-9c21-7af0-aaa0-970f0334108c/deepclean-tide/selection-comparison.png)
+- 第一轮 P2 为底部可清理估算和统计范围被挤出首屏。收紧标题留白、波带高度和操作区后复拍，范围提示底边位于视口第 689 像素，主面板无横向溢出。
+- 字体沿用系统 UI，标题、波带标签和容量分层。深蓝画布、四色波带及亮色选中线呈现概念稿的层次。波带按目录占比生成清晰的矢量轮廓，文件夹图标复用项目内置图标。过薄波带的标签移至图下，底部保留精确读数和部分统计提示。现有导航尺寸与概念稿略有差异，属于 P3。
+- 隔离预览已走查选中、下钻、返回、键盘展开「其他」、目录范围的大文件、清理预筛选和过期隐藏估算。另验收 320 像素英文窄窗与 1280 像素宽窗，浏览器无错误日志。[目录下钻](/Users/hxl/.codex/visualizations/2026/11/06/01a1afd4-9c21-7af0-aaa0-970f0334108c/deepclean-tide/02-drill.jpg) · [英文窄窗](/Users/hxl/.codex/visualizations/2026/11/06/01a1afd4-9c21-7af0-aaa0-970f0334108c/deepclean-tide/03-english.jpg)
+- DSH 实际宿主与 Windows 真机有待验证。
+
+## 历史页「文件流向」验收（2026-11-06）
+
+final result: passed
+
+- [选定概念稿](/Users/hxl/.codex/generated_images/01a1b005-8df2-7442-a1a3-2fcb2d4b6d50/exec-9567ad31-07ea-40c8-ae8d-aaad933ebc43.png) 与 [Chrome 实现截图](/Users/hxl/.codex/visualizations/2026/11/06/01a1b005-8df2-7442-a1a3-2fcb2d4b6d50/history-desktop.png) 均为 1487 × 1058 像素。实现的 CSS 视口为 1487 × 1058，设备像素比为 1。状态为历史页浅色模式，选中仍可恢复的 3.2 GB 示例批次。[整页对照](/Users/hxl/.codex/visualizations/2026/11/06/01a1b005-8df2-7442-a1a3-2fcb2d4b6d50/history-comparison.png) 将两侧等比缩至 743 像素宽，[流带对照](/Users/hxl/.codex/visualizations/2026/11/06/01a1b005-8df2-7442-a1a3-2fcb2d4b6d50/history-flow-comparison.png) 用同一缩放比例对比图形区。
+- 第一轮 P1 为单支水平流带的渐变没有显示，P2 为宽窗图形区太矮、去向标签视觉偏弱。改用 SVG 用户坐标绘制渐变，增加宽窗行高并给去向标签增加背景。复拍中蓝带从移入日延伸到今天，已恢复和已永久删除的分支各自在实际操作时间停止。
+- 沿用宿主系统字体、导航与浅蓝色选中样式。主数字突出当前可恢复量，流带保留原稿的蓝色渐变和轻微曲线，容量取清理时估算值。分支颜色更克制，去向附文字与日期。原稿把结束状态都排在右侧，实际图形按时间结束，终点日期列在去向标签和批次详情。保留较紧凑的面板留白和独立批次详情，原稿的强光泽与大字号作为 P3 视觉差异。
+- Chrome 隔离预览通过空状态、选择旧批次、查看内容、从归档跳到详情、永久删除二次确认及取消、模拟恢复和状态更新。390 × 844 的 [窄窗](/Users/hxl/.codex/visualizations/2026/11/06/01a1b005-8df2-7442-a1a3-2fcb2d4b6d50/history-narrow.png) 改用文本行并检查无横向溢出，另查看 [暗色](/Users/hxl/.codex/visualizations/2026/11/06/01a1b005-8df2-7442-a1a3-2fcb2d4b6d50/history-dark.png)。操作中无应用脚本或 API 错误。Windows 真机与 DSH 实际宿主尚未验收。
