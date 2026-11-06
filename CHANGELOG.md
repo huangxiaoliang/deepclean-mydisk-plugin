@@ -1,5 +1,15 @@
 # deepclean-mydisk 插件变更
 
+## 0.13.0 — 2026-11-06
+- 空间页改版：环形图换成**潮汐带状图**（按目录占比分带、保留面包屑与下钻、新增范围与可清理提示）；图表与明细共用同一分母
+- 空间统计加固（`tree.py`）：单趟后序遍历 + 预归一化根路径；硬链接按 `(dev, ino)` 去重，`bigFiles` 只保留一条并在客户端给出共享说明；云占位在重解析点之前判定；超过 260 字符的 Windows 路径改用 `\\?\` 前缀；新增 `skippedCloud` / `cloudFiles` / `sharedFiles` / `sharedDupKb` / `bigFilesCap` 字段
+- 宿主 tree 接口：缓存上限提高到 2000 条，target-last 播种并在命中时做 LRU 回写；子目录刷新回填祖先行；客户端断开时中止子进程；错误统一为 `tree_*` 稳定错误码，非 GET 返回 405
+- 客户端：目录错误本地化、每层上限提示、硬链接说明与移动警告、停止取消、刷新期间保留潮汐图挂载、展开尾部标签切换、打开位置错误独立通道、大文件搜索按路径边界过滤
+- 历史页：新增**文件流带**（可恢复容量、批次详情、按 batch id 重放 purge / restore）
+- Windows 运行时探测：扫描前依次尝试 `py -3` / `python` / `python3`，要求 Python 3.9+；扫描可中止；找不到可用运行时时给出 `python_unavailable` 恢复提示，并可把设置请求发到当前对话
+- 预览与文档：预览 mock 补齐新计数；README / DETAIL / AGENTS / CLAUDE / CONTRIBUTING 同步潮汐图与 Windows Python 要求
+- 测试 206（macOS 204 pass / 2 skip；Windows 199 pass / 7 skip），新增 Python 探测、Windows Python 兜底、云盘根平台分支与 `tree.py` 回归；开发侧新增 `pnpm-workspace.yaml` 以便 `node --test` 与预览脚本在 Windows + Node 24 下解析 peer 依赖
+
 ## 0.12.1 — 2026-11-03
 - 修复（Windows 报告/隐私）：`--redact` 改为先脱敏 home 路径再生成 PowerShell 命令，并按 PowerShell 规则转义 `'`（含 `O'Brien` 这类用户名），home 路径与用户名不再泄漏到报告或模型上下文；生成的 `Move-Item` 命令同样转义
 - 修复（扫描器）：`--redact` 不再对全文替换主机名（主机名是常见子串时，如 `h`，会打碎正文）；非 Windows 宿主执行 `--platform windows` 改为显式退出 2，并提示跨平台合成扫描入口 `scripts/windows-ci/scanner.py`
