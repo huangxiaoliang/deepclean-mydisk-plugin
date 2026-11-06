@@ -22,7 +22,7 @@ DSH 插件：原生侧边栏磁盘空间工具（macOS / Windows），只读体�
 | `resources/scripts/platforms/windows.py` | Windows 只读扫描（注册表已装程序、缓存与残留、UWP、OneDrive、浏览器缓存多 profile + `running` 标记、大文件；预算 120s；7 项自检）；残留经 `classify_leftover` 分档，**confirm 残留里的缓存子目录同样经 `cache_subdirs`/`apply_leftover_cache_split` 拆成 safe 组**（`cachePart: true`）；产出与 macOS 同契约的 `leftoverGroups`/`cloudStorage`/`browsers`/`estimate` |
 | `resources/scripts/photos.py` | 相似照片 dHash 指纹与分组（macOS `sips`；Windows 走 PowerShell 批量解码）；跳过云盘目录/云占位文件与 App 包目录，结果带 `skippedCloud`/`skippedPackages` |
 | `resources/scripts/photos-windows.ps1` | Windows `.NET` 指纹 / 缩略图解码，**不依赖 Pillow**；只写显式指定的临时 JPEG |
-| `resources/scripts/tree.py` | 空间页目录统计：单趟后序遍历产出根清单 + `dirs` 各层缓存播种（≥10MB 子树、上限 500）+ 每层 `bigFiles` 堆（≥1MB，根 top 50 / 子目录 top 20）；含隐藏项，返回 `partial`/`unavailable`/`skipped`/`skippedCloud`/`metric`；不跟随链接与 Windows 重解析点；**云盘目录与 App 包目录仍计入大小，但不进 `bigFiles`/`dirs`**（防止被搬家/去重选中）；云盘根可用 `DEEPCLEAN_CLOUD_ROOTS` 注入 |
+| `resources/scripts/tree.py` | 空间页目录统计：单趟后序遍历产出根清单 + `dirs` 各层缓存播种（≥10MB 子树、上限 500）+ 每层 `bigFiles` 堆（≥1MB，根 top 50 / 子目录 top 20，`bigFilesCap` 随响应返回）；含隐藏项，返回 `partial`/`unavailable`/`skipped`/`skippedCloud`/`cloudFiles`/`sharedFiles`/`sharedDupKb`/`metric`；不跟随链接与 Windows 重解析点；**云盘目录与 App 包目录仍计入大小，但不进 `bigFiles`/`dirs`**（防止被搬家/去重选中）；云盘占位文件先按云占位归类、不算「链接」；同一 inode 的硬链接只计一次大小、只进一条 `bigFiles`（重复项 `dedup:true`）；Windows >260 字符路径用 `\\?\` 访问；云盘/AppData 根预归一化，遍历内不再逐条 `realpath`；云盘根可用 `DEEPCLEAN_CLOUD_ROOTS` 注入 |
 | `resources/rules.json` | macOS 分类规则（thresholds / knownNames / denyPaths 等） |
 | `resources/images/disk.png` | 首页插画，**只经固定路由** `/dsh-deepclean/assets/disk.png` 暴露 |
 | `resources/LICENSE-phosphor.txt` | 内嵌 Phosphor 图标（MIT）许可证 |
@@ -87,7 +87,7 @@ python3 resources/scripts/deepclean.py --version            # deepclean-mydisk 0
 python3 tests/photos-regressions.py                         # 照片解码回归
 python3 tests/macos-scanner-regressions.py                  # macOS 大文件流式 top-N 回归（改了 scan.py 才需要）
 python3 tests/windows-scanner-regressions.py                # Windows 扫描器回归（改了 platforms/windows.py 才需要）
-python3 tests/tree-regressions.py                         # tree.py 回归：dirs 播种、bigFiles 堆、partial 传播（改了 tree.py 才需要）
+python3 tests/tree-regressions.py                         # tree.py 回归：dirs 播种、bigFiles 堆、partial 传播、硬链接去重、长路径、realpath 次数（改了 tree.py 才需要）
 node scripts/preview.mjs                                    # http://127.0.0.1:4173
 ```
 
@@ -117,10 +117,10 @@ node scripts/preview.mjs                                    # http://127.0.0.1:4
 - 修改 `lib/index.js` 或 `lib/client.js` 后**必须重启 DSH**（`link:` 挂载，宿主进程内加载）。
 - 扫描是**后台子进程**：`POST /scan` 立即 202，客户端 900ms 轮询 `GET /scan`；进度条按经验时长插值（28s / 45s），不是实测耗时，UI 进度与实际进度可能不同步。
 - `/api/report` 的 GET 有副作用：除 `cached=1` 外都会**启动扫描**并返回 202；客户端已不再调用它，改由 `/api/scan`。
-- `/api/tree` 走 `tree.py` + 60s 缓存（500 条 LRU）；tree.py 单趟遍历返回 `dirs` 各层清单，宿主一次播种全层缓存，下钻不再重复遍历；使用独立子进程句柄，浏览目录**不会**取消正在进行的扫描。
+- `/api/tree` 走 `tree.py` + 60s 缓存（2000 条 LRU）；播种时先写子目录、最后写目标，且容量大于单次可播种的 500 层，目标不会被自己的 `dirs` 挤出；命中时刷新 LRU 顺序；子树刷新会同步修正父级缓存行的大小；客户端断开连接会通过 `AbortSignal` 杀掉 `tree.py`（`停止加载`）；错误带稳定 `errorCode`（`tree_missing`/`tree_denied`/`tree_outside`/`tree_symlink`/`tree_timeout`/`tree_failed`）供中英文界面本地化；使用独立子进程句柄，浏览目录**不会**取消正在进行的扫描。
 - **AI 是单向投递**：只能把提示词排入当前会话，读不到模型回复；不要设计依赖模型输出的自动勾选、自动清理或结构化回填。
 - 新增/修改 AI 入口时必须复用 `lib/client.js` 的 `untrustedText` / `safeDisplayPath` / `aiRules`，中英文规则成对修改；不得给模型新增写工具，也不得把 `prompt` 结果用于 `allowedPaths` / `isProtected` / 新鲜度判断。
-- 测试按平台跳过：macOS 跳 2 个 Windows 专用 HTTP 用例（`tests/host.test.mjs` 的 Windows tree / thumbnail），结果 179 pass / 2 skip；Windows 跳 7 个 macOS / 非 Windows 宿主专用用例（3 个 symlink 清理/恢复、1 个跨盘复制链接、tree 拒家目录外、permissions、`--platform windows` 拒绝用例），结果 174 pass / 7 skip。CI 两端都会跑全量。
+- 测试按平台跳过：共 **205** 个用例；macOS 跳 2 个 Windows 专用 HTTP 用例（`tests/host.test.mjs` 的 Windows tree / thumbnail），实测 **203 pass / 2 skip**；Windows 跳 7 个 macOS / 非 Windows 宿主专用用例（3 个 symlink 清理/恢复、1 个跨盘复制链接、tree 拒家目录外、permissions、`--platform windows` 拒绝用例），实测 **198 pass / 7 skip**。CI 两端都会跑全量。
 - 换行统一 **LF**（`.gitattributes` 的 `* text=auto eol=lf`）：页面测试用源码字符串替换注入视图，CRLF checkout 会让断言失配；不要改该文件或改用会转 CRLF 的克隆配置。
 
 ## 已知缺口（改代码前先看，均为代码事实）

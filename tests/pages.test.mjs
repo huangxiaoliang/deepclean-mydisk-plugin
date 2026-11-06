@@ -332,12 +332,98 @@ test('space waves use the full total and preserve the area of the aggregated tai
 
 test('space waves expose selectable labels and an action for the aggregated tail', () => {
   const children = Array.from({length:9},(_,i)=>({path:'/demo/'+i,name:'item'+i,kb:1024,isDir:true}))
-  const mutate=s=>cases.find(([n])=>n==='space-tree')[1](s)
+  const inject=(html,limit)=>html
     .replace('const [data, setData] = useState(null);','const [data, setData] = useState('+JSON.stringify({path:'/demo',at:Date.now(),children,metric:'allocated'})+');')
     .replace('const [selectedPath, setSelectedPath] = useState("");','const [selectedPath, setSelectedPath] = useState(null);')
-  const html=renderView(mutate)
-  assert.match(html, /<button[^>]*aria-label="其他 · 6 MB · 67%" aria-pressed="true"/)
-  assert.match(html, /<button[^>]*>查看其他项目<\/button>/)
+    .replace('const [limit, setLimit] = useState(20);',`const [limit, setLimit] = useState(${limit});`)
+  const collapsed=renderView(s=>inject(cases.find(([n])=>n==='space-tree')[1](s),3))
+  assert.match(collapsed, /<button[^>]*aria-label="其他 · 6 MB · 67%" aria-pressed="true"/)
+  assert.match(collapsed, /<button[^>]*>查看其他项目<\/button>/)
+  // 9 行全部显示时不再是「查看其他项目」，避免点了没有变化的无效操作。
+  const expanded=renderView(s=>inject(cases.find(([n])=>n==='space-tree')[1](s),20))
+  assert.match(expanded, /<button[^>]*>查看明细<\/button>/)
+  assert.ok(!expanded.includes('查看其他项目'))
+})
+
+test('space tree localizes cloud counts, hard links and skip reasons', () => {
+  const children = [
+    { path: '/demo/cloud', name: 'cloud', kb: 2048, isDir: true, cloud: true },
+    { path: '/demo/shared.bin', name: 'shared.bin', kb: 1024, isDir: false, shared: true },
+    { path: '/demo/dup.bin', name: 'dup.bin', kb: 0, isDir: false, shared: true, dedup: true },
+  ]
+  const data = {
+    path: '/demo', at: Date.now(), children, metric: 'logical', partial: true,
+    skippedCloud: 2, cloudFiles: 3, sharedFiles: 4, sharedDupKb: 1024,
+    bigFilesCap: 50, unavailable: 1, skipped: 2,
+  }
+  const mutate = s => cases.find(([n]) => n === 'space-tree')[1](s)
+    .replace('const [data, setData] = useState(null);', `const [data, setData] = useState(${JSON.stringify(data)});`)
+  const zh = renderView(mutate)
+  assert.match(zh, /跳过云占位文件 3 个/)
+  assert.match(zh, /硬链接 4 个；重复部分/)
+  assert.match(zh, /未能读取 1 项/)
+  assert.match(zh, /跳过链接或系统别名 2 项/)
+  assert.match(zh, /硬链接（大小已计入其他位置）/)
+  const en = renderView(mutate, 'en')
+  assert.match(en, /Skipped cloud placeholder files: 3/)
+  assert.match(en, /Hard links: 4/)
+  assert.match(en, /Hard link \(size already counted elsewhere\)/)
+})
+
+test('tree errors localize by stable code instead of raw host text', () => {
+  const casesByCode = [
+    ['tree_missing', '目录不存在或已被删除', 'no longer exists'],
+    ['tree_denied', '无权读取该目录', 'Cannot read this folder'],
+    ['tree_timeout', '目录统计超时', 'timed out'],
+    ['tree_symlink', '链接或个人文件夹之外的路径不可浏览', 'cannot be browsed'],
+    ['tree_outside', '只允许浏览个人文件夹', 'Only your home folder'],
+  ]
+  for (const [code, zhText, enText] of casesByCode) {
+    const mutate = s => cases.find(([n]) => n === 'space-tree')[1](s)
+      .replace('const [error, setError] = useState(null);', `const [error, setError] = useState(${JSON.stringify({ code, message: 'ENOENT: raw' })});`)
+    const zh = renderView(mutate)
+    assert.ok(zh.includes(zhText), `${code} zh`)
+    assert.ok(!zh.includes('ENOENT'), `${code} must not leak raw fs text`)
+    const en = renderView(mutate, 'en')
+    assert.ok(en.includes(enText), `${code} en: ${en.slice(0, 200)}`)
+  }
+  // 打开位置失败走独立错误通道：重试只重开位置，不重新统计目录。
+  const reveal = s => cases.find(([n]) => n === 'space-tree')[1](s)
+    .replace('const [error, setError] = useState(null);', 'const [error, setError] = useState({ code: "reveal", path: "/demo/a", message: "x" });')
+  assert.ok(renderView(reveal).includes('无法打开位置'))
+  assert.ok(renderView(reveal, 'en').includes('Could not open location'))
+})
+
+test('refreshing keeps the tide map mounted to avoid a layout jump', () => {
+  const children = [
+    { path: '/demo/a', name: 'a', kb: 1024, isDir: true },
+    { path: '/demo/b', name: 'b', kb: 512, isDir: true },
+  ]
+  const data = { path: '/demo', at: Date.now(), children, metric: 'allocated' }
+  const mutate = s => cases.find(([n]) => n === 'space-tree')[1](s)
+    .replace('const [data, setData] = useState(null);', `const [data, setData] = useState(${JSON.stringify(data)});`)
+    .replace('const [loading, setLoading] = useState(false);', 'const [loading, setLoading] = useState(true);')
+  const html = renderView(mutate)
+  assert.match(html, /class="dc-tide-map-wrap" aria-busy="true"/)
+  assert.match(html, /class="dc-tide-band"/)
+  assert.ok(html.includes('停止加载'))
+  assert.ok(!html.includes('<svg class="dc-tide-loading-wave"'), 'no second wave while the map stays mounted')
+})
+
+test('scoped large files surface the per-folder cap and hard-link note', () => {
+  const scoped = {
+    scope: '/demo/dir', at: Date.now(), cap: 20,
+    files: [{ path: '/demo/dir/shared.bin', kb: 800000, mtime: Math.floor(Date.now() / 1000) - 86400, shared: true }],
+  }
+  const mutate = s => cases.find(([n]) => n === 'space-large')[1](s)
+    .replace('const [spaceScope, setSpaceScope] = useState("");', 'const [spaceScope, setSpaceScope] = useState("/demo/dir");')
+    .replace('const [spaceFiles, setSpaceFiles] = useState(null);', `const [spaceFiles, setSpaceFiles] = useState(${JSON.stringify(scoped)});`)
+  const zh = renderWithData(mutate, 'zh', noScanOverview)
+  assert.match(zh, /最多 20 个/)
+  assert.match(zh, /显示 1 个文件/)
+  assert.match(zh, /硬链接：移动只减少引用/)
+  const en = renderWithData(mutate, 'en', noScanOverview)
+  assert.match(en, /up to 20/)
 })
 
 test('space tree marks cleanable portions from the fresh report', () => {

@@ -151,11 +151,21 @@ const server = http.createServer(async (req, res) => {
     if (api === '/tree') {
       if (pythonMissing) return json(pythonError, 400)
       const folder = url.searchParams.get('path') || '/demo'
+      const root = folder === '/demo'
       const bigFiles = [
-        { path: folder + '/Archives/preview-4k.mkv', kb: 4200000, mtime: Math.floor(Date.now() / 1000) - 86400 * 120 },
+        { path: folder + '/Archives/preview-4k.mkv', kb: 4200000, mtime: Math.floor(Date.now() / 1000) - 86400 * 120, shared: true },
         { path: folder + '/demo-video.mp4', kb: 900000, mtime: Math.floor(Date.now() / 1000) - 86400 * 20 },
       ]
-      return json({ path: folder, at: Date.now(), metric: 'allocated', unavailable: 1, skipped: 2, bigFiles, children: folder === '/demo' ? ['Library', 'Documents', 'Downloads', '.cache', 'Pictures', 'Desktop', 'Music', 'Other'].map((name,i) => ({ name, path: '/demo/' + name, isDir: true, kb: [32000000,8000000,3000000,2000000,1000000,500000,250000,100000][i] })) : [{name:'Archives',path:folder+'/Archives',isDir:true,kb:3000000}] })
+      const children = root
+        ? ['Library', 'Documents', 'Downloads', '.cache', 'Pictures', 'Desktop', 'Music', 'Other'].map((name, i) => ({ name, path: '/demo/' + name, isDir: true, kb: [32000000, 8000000, 3000000, 2000000, 1000000, 500000, 250000, 100000][i] }))
+          .concat([{ name: 'hardlink-demo.mkv', path: '/demo/hardlink-demo.mkv', isDir: false, kb: 0, shared: true, dedup: true }])
+        : [{ name: 'Archives', path: folder + '/Archives', isDir: true, kb: 3000000 }]
+      return json({
+        path: folder, at: Date.now(), metric: 'allocated', unavailable: 1, skipped: 2, partial: true,
+        skippedCloud: root ? 1 : 0, cloudFiles: root ? 12 : 0,
+        sharedFiles: root ? 2 : 0, sharedDupKb: root ? 4200000 : 0,
+        bigFilesCap: root ? 50 : 20, bigFiles, children,
+      })
     }
     if (api === '/destination') { const p=url.searchParams.get('path'); return json({path:p,parent:p==='/Backup'?null:'/Backup',free:500e9,folders:p==='/Backup'?[{name:'Archive',path:'/Backup/Archive'}]:[]}) }
     if (api === '/move' && req.method === 'POST') { state.move={status:'running',done:0,total:body.paths.length,destination:body.destination,startedAt:Date.now(),paths:body.paths,results:[]}; return json({count:body.paths.length,move:state.move}) }
