@@ -332,6 +332,193 @@ test('tree walk seeds the drill-down cache and confirms big files for moving', a
   }
 })
 
+test('tree cache keeps the walked target when hundreds of levels are seeded', () => {
+  const home = process.env.HOME
+  process.env.HOME = root
+  try {
+    const base = path.join(root, 'tree-cache-cap')
+    const target = path.join(base, 'target')
+    const dirs = {}
+    for (let i = 0; i < 500; i++) {
+      const p = path.join(base, 'd' + String(i).padStart(3, '0'))
+      dirs[p] = {
+        kb: 20 * 1024, children: [], skippedCloud: 1, cloudFiles: 2,
+        sharedFiles: 3, sharedDupKb: 40, bigFilesCap: 20, bigFiles: [],
+      }
+    }
+    plugin.seedTreeCache(target, {
+      path: target,
+      children: [{ name: 'x', path: path.join(target, 'x'), kb: 10, isDir: false }],
+      at: Date.now(), metric: 'logical', unavailable: 0, skipped: 0,
+      skippedCloud: 0, cloudFiles: 0, sharedFiles: 0, sharedDupKb: 0,
+      bigFilesCap: 50, bigFiles: [], dirs,
+    })
+    const entry = plugin.treeCache.get(path.resolve(target))
+    assert.ok(entry, 'the walked directory must not be evicted by its own 500 seeded levels')
+    assert.equal(entry.data.bigFilesCap, 50)
+    const seededChild = plugin.treeCache.get(path.resolve(path.join(base, 'd000')))
+    assert.equal(seededChild.data.skippedCloud, 1, 'cloud counters must survive seeding')
+    assert.equal(seededChild.data.cloudFiles, 2)
+    assert.equal(seededChild.data.sharedFiles, 3)
+    assert.equal(seededChild.data.sharedDupKb, 40)
+    assert.equal(seededChild.data.bigFilesCap, 20)
+
+    // 子树刷新后，父级缓存里的行也要更新，否则返回上一级看到旧大小。
+    const parent = path.join(base, 'parent')
+    const kid = path.join(parent, 'kid')
+    plugin.seedTreeCache(parent, {
+      path: parent, children: [{ name: 'kid', path: kid, kb: 1, isDir: true }],
+      at: 1, metric: 'logical', unavailable: 0, skipped: 0, bigFiles: [], dirs: {},
+    })
+    plugin.seedTreeCache(kid, {
+      path: kid, children: [{ name: 'f', path: path.join(kid, 'f'), kb: 7, isDir: false }],
+      at: 2, metric: 'logical', unavailable: 0, skipped: 0, bigFiles: [], dirs: {},
+    })
+    const row = plugin.treeCache.get(path.resolve(parent)).data.children.find((c) => c.path === kid)
+    assert.equal(row.kb, 7)
+  } finally {
+    if (home === undefined) delete process.env.HOME
+    else process.env.HOME = home
+  }
+})
+
+test('seeded drill-down keeps cloud counters, hard-link metadata and caps', async () => {
+  const home = process.env.HOME
+  process.env.HOME = root
+  const parent = path.join(root, 'tree-cloud')
+  const child = path.join(parent, 'Docs')
+  const cloud = path.join(child, 'OneDrive')
+  fs.mkdirSync(cloud, { recursive: true })
+  fs.writeFileSync(path.join(cloud, 'c.bin'), Buffer.alloc(12 * 1024 * 1024, 1))
+  const a = path.join(child, 'a.bin')
+  fs.writeFileSync(a, Buffer.alloc(2 * 1024 * 1024, 1))
+  fs.linkSync(a, path.join(child, 'b.bin'))
+  const prevOneDrive = process.env.OneDrive
+  process.env.OneDrive = cloud
+  const getTree = async (p, refresh = false) => {
+    const res = mockRes()
+    const url = '/dsh-deepclean/api/tree?path=' + encodeURIComponent(p) + (refresh ? '&refresh=1' : '')
+    await find('/tree').handler(mockReq('GET', url), res)
+    return { code: res.code, body: JSON.parse(res.body || '{}') }
+  }
+  try {
+    const homeRes = await getTree(parent)
+    assert.equal(homeRes.code, 200, JSON.stringify(homeRes.body))
+    assert.equal(homeRes.body.bigFilesCap, 50)
+    assert.ok(!homeRes.body.bigFiles.some((f) => f.path.startsWith(cloud)), 'cloud files never enter bigFiles')
+    const docs = homeRes.body.children.find((c) => c.name === 'Docs')
+    assert.ok(docs && docs.kb >= 14 * 1024 - 1, 'cloud and hard links counted once in the total')
+
+    const drilled = await getTree(child)
+    assert.equal(drilled.body.at, homeRes.body.at, 'drill-down served from the seeded cache')
+    assert.equal(drilled.body.skippedCloud, 1, 'seeded entry must keep the cloud counter')
+    assert.equal(drilled.body.bigFilesCap, 20, 'per-directory cap must survive seeding')
+    assert.equal(drilled.body.sharedFiles, 2, 'hard-link count must survive seeding')
+    assert.ok(Math.abs(drilled.body.sharedDupKb - 2 * 1024) < 2)
+    const bigs = drilled.body.bigFiles
+    assert.equal(bigs.length, 1, 'one inode must appear once in bigFiles')
+    assert.equal(bigs[0].shared, true)
+  } finally {
+    if (prevOneDrive === undefined) delete process.env.OneDrive
+    else process.env.OneDrive = prevOneDrive
+    if (home === undefined) delete process.env.HOME
+    else process.env.HOME = home
+  }
+})
+
+test('refreshing a subtree updates the cached parent row', async () => {
+  const home = process.env.HOME
+  process.env.HOME = root
+  const parent = path.join(root, 'tree-stale')
+  const kid = path.join(parent, 'kid')
+  fs.mkdirSync(kid, { recursive: true })
+  fs.writeFileSync(path.join(kid, 'big.bin'), Buffer.alloc(12 * 1024 * 1024, 1))
+  const getTree = async (p, refresh = false) => {
+    const res = mockRes()
+    const url = '/dsh-deepclean/api/tree?path=' + encodeURIComponent(p) + (refresh ? '&refresh=1' : '')
+    await find('/tree').handler(mockReq('GET', url), res)
+    return { code: res.code, body: JSON.parse(res.body || '{}') }
+  }
+  try {
+    const first = await getTree(parent)
+    assert.equal(first.code, 200, JSON.stringify(first.body))
+    assert.equal(first.body.children.find((c) => c.name === 'kid').kb, 12 * 1024)
+    const cached = await getTree(kid)
+    assert.equal(cached.body.at, first.body.at)
+    fs.writeFileSync(path.join(kid, 'more.bin'), Buffer.alloc(12 * 1024 * 1024, 1))
+    const refreshed = await getTree(kid, true)
+    assert.ok(refreshed.body.at >= first.body.at)
+    assert.ok(refreshed.body.children.some((c) => c.name === 'more.bin' && c.kb === 12 * 1024))
+    const again = await getTree(parent)
+    assert.equal(again.body.children.find((c) => c.name === 'kid').kb, 24 * 1024,
+      'cached parent row must follow the refreshed subtree')
+    assert.equal([...plugin.treeCache.keys()].at(-1), path.resolve(parent),
+      'a cache hit refreshes LRU recency')
+  } finally {
+    if (home === undefined) delete process.env.HOME
+    else process.env.HOME = home
+  }
+})
+
+test('tree errors carry stable codes and reject non-GET', async () => {
+  const home = process.env.HOME
+  process.env.HOME = root
+  const getTree = async (p) => {
+    const res = mockRes()
+    await find('/tree').handler(mockReq('GET', '/dsh-deepclean/api/tree?path=' + encodeURIComponent(p)), res)
+    return { code: res.code, body: JSON.parse(res.body || '{}') }
+  }
+  try {
+    const missing = await getTree(path.join(root, 'tree-missing-x'))
+    assert.equal(missing.code, 400)
+    assert.equal(missing.body.errorCode, 'tree_missing')
+
+    const outside = await getTree(os.tmpdir())
+    assert.equal(outside.code, 400)
+    assert.equal(outside.body.errorCode, 'tree_outside')
+
+    const post = mockRes()
+    await find('/tree').handler(mockReq('POST', '/dsh-deepclean/api/tree'), post)
+    assert.equal(post.code, 405)
+
+    if (process.platform === 'win32') {
+      const upper = await getTree(root.toUpperCase())
+      assert.equal(upper.code, 200, JSON.stringify(upper.body))
+    }
+  } finally {
+    if (home === undefined) delete process.env.HOME
+    else process.env.HOME = home
+  }
+})
+
+test('aborting the tree request cancels the walk without writing a response', async () => {
+  const home = process.env.HOME
+  process.env.HOME = root
+  const folder = path.join(root, 'tree-abort')
+  fs.mkdirSync(folder)
+  fs.writeFileSync(path.join(folder, 'x.bin'), Buffer.alloc(2 * 1024 * 1024))
+  let handlers = {}
+  const res = {
+    code: 0, body: '', writableEnded: false,
+    on(e, f) { handlers[e] = f },
+    off(e, f) { if (handlers[e] === f) delete handlers[e] },
+    writeHead(c) { this.code = c },
+    end(b) { this.body = b; this.writableEnded = true },
+    destroy() {},
+  }
+  try {
+    const pending = find('/tree').handler(mockReq('GET', '/dsh-deepclean/api/tree?path=' + encodeURIComponent(folder)), res)
+    assert.equal(typeof handlers.close, 'function', 'route must listen for client disconnects')
+    handlers.close() // 模拟客户端点「停止加载」断开连接
+    await pending
+    assert.equal(res.code, 0, 'an aborted request must not be answered')
+    assert.equal(res.writableEnded, false)
+  } finally {
+    if (home === undefined) delete process.env.HOME
+    else process.env.HOME = home
+  }
+})
+
 test('history replays legacy restores and refuses a reused destination from an old batch', async () => {
   const folder=path.join(root,'legacy-history')
   fs.mkdirSync(folder)

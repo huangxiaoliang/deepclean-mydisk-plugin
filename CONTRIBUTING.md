@@ -5,7 +5,8 @@
 ## 环境
 
 - Node.js 24（`npm test` 使用 `node --test`）；
-- Python 3.12（扫描器与照片解码回归）；
+- Python 3.12（扫描器与照片解码回归）；宿主按 `PYTHON` 环境变量 → `py -3` / `python` / `python3` → DSH 自带运行时（`$DSH_HOME/dsh-runtimes/*/dependencies/python`）的顺序探测，测试脚本自身只认 `PYTHON` 与 PATH；
+- 依赖安装：`npm install`（CI 用）或 `pnpm install` 均可；`pnpm-workspace.yaml` 已为 pnpm 打开依赖提升，否则 Windows + Node 24 下 `node --test` 会报 `ERR_MODULE_NOT_FOUND`、`node scripts/preview.mjs` 会报 `Cannot find module 'scheduler'`；
 - **没有构建步骤**：`lib/client.js` 是手写 bundle（CSS 内联、图标为内嵌 SVG），不要引入 JSX / 打包器 / 运行时 CDN；
 - 修改 `lib/index.js` 或 `lib/client.js` 后需要重启 DSH（`link:` 挂载，宿主进程内加载）。
 
@@ -60,8 +61,8 @@ node scripts/preview.mjs                                   # 隔离预览
 
 ## 测试与 CI
 
-- `npm test`（`node --test`）当前 **181** 个用例（平台相关用例会跳过，实际数量与跳过项以 `npm test` 输出为准）；
-- 平台专用用例会跳过：macOS 跳过 2 个 Windows 专用 HTTP 用例（179 pass / 2 skip），Windows 跳过 7 个 macOS / 非 Windows 宿主专用用例（174 pass / 7 skip）；
+- `npm test`（`node --test`）当前 **205** 个用例（平台相关用例会跳过，实际数量与跳过项以 `npm test` 输出为准）；
+- 平台专用用例会跳过：macOS 跳过 2 个 Windows 专用 HTTP 用例（203 pass / 2 skip），Windows 跳过 7 个 macOS / 非 Windows 宿主专用用例（198 pass / 7 skip）；
 - CI（[.github/workflows/tests.yml](.github/workflows/tests.yml)）在 macOS + Windows 上跑 Node 24 + Python 3.12，只执行 `npm test`；
 - [.github/workflows/windows-acceptance.yml](.github/workflows/windows-acceptance.yml) 额外在 windows-2022 / windows-2025 / windows-11-arm 上跑原生验收，详见 [docs/windows-ci.md](docs/windows-ci.md)；
 - 页面测试是 SSR 渲染（`renderToString`），不是浏览器 E2E；真实交互请用隔离预览人工验收。

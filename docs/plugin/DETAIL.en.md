@@ -12,7 +12,7 @@ DeepClean MyDisk is a DSH plugin for macOS and Windows that audits disk usage wi
 
 ![Cleanup screen](shot-clean.jpg)
 
-**Space.** A directory breakdown with a ring chart, breadcrumbs, and drill-down covers the home directory, and a large-file view supports size and age filters.
+**Space.** A tide-band chart of the home directory, with breadcrumbs and drill-down, plus a large-file view filtered by size and age.
 
 **Similar photos.** dHash fingerprinting groups similar photos across Pictures, Downloads, Desktop, and Documents, up to 600 photos of at least 200 KB. Keep-largest, keep-newest, and keep-shallowest strategies are available.
 

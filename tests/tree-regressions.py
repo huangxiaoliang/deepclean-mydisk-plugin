@@ -128,6 +128,87 @@ try:
           and any(c["name"] == "Pictures" and c["kb"] > 0 for c in rc["children"]),
           repr(rc["children"]))
 
+    # ── 硬链接只计一次 + 标注 ──────────────────────────────────────────
+    hl = tmp / "extra" / "hl"
+    hl.mkdir(parents=True)
+    src = hl / "src.bin"
+    src.write_bytes(b"x" * (2 * MB))
+    os.link(src, hl / "link.bin")
+    rh = tree.inspect_tree(str(hl))
+    total_kb = sum(c["kb"] for c in rh["children"])
+    check("硬链接只计一次大小", abs(total_kb - 2 * 1024) < 2, repr(total_kb))
+    check("硬链接只进一条 bigFiles",
+          len(rh["bigFiles"]) == 1 and rh["bigFiles"][0]["shared"] is True, repr(rh["bigFiles"]))
+    check("重复硬链接标记 dedup", any(c.get("dedup") for c in rh["children"]), repr(rh["children"]))
+    check("硬链接计数与重复大小",
+          rh["sharedFiles"] == 2 and abs(rh["sharedDupKb"] - 2 * 1024) < 2,
+          repr((rh["sharedFiles"], rh["sharedDupKb"])))
+
+    # ── bigFiles 上限写进响应，客户端才能说清「最多 N 个」 ────────────
+    check("根 bigFiles 上限", rc.get("bigFilesCap") == tree.ROOT_BIG, repr(rc.get("bigFilesCap")))
+    check("子目录 bigFiles 上限", dirs[str(a)].get("bigFilesCap") == tree.DIR_BIG,
+          repr(dirs[str(a)].get("bigFilesCap")))
+
+    # ── 云盘根只计一次（OneDrive/sub 两层只算 1 个云盘目录）────────────
+    check("云盘根只计一次", rc.get("skippedCloud") == 1, repr(rc.get("skippedCloud")))
+    check("云盘占位文件单独计数", rc.get("cloudFiles") == 0, repr(rc.get("cloudFiles")))
+
+    # ── 遍历不再逐条 realpath（性能回归）──────────────────────────────
+    perf = tmp / "extra" / "perf"
+    for i in range(60):
+        d = perf / f"d{i:02d}"
+        d.mkdir(parents=True)
+        (d / "x").write_bytes(b"x")
+    calls = []
+    original_realpath = os.path.realpath
+
+    def counting_realpath(p, *args, **kwargs):
+        calls.append(p)
+        return original_realpath(p, *args, **kwargs)
+
+    os.path.realpath = counting_realpath
+    try:
+        tree.inspect_tree(str(perf))
+    finally:
+        os.path.realpath = original_realpath
+    check("遍历 60 个目录的 realpath 次数受控", len(calls) < 40, repr(len(calls)))
+
+    # ── >260 字符路径（Windows）───────────────────────────────────────
+    if is_win:
+        long_root = tmp / "extra" / "long"
+        deep_path = long_root
+        while len(str(deep_path)) < 280:
+            deep_path = deep_path / ("d" * 40)
+        os.makedirs("\\\\?\\" + str(deep_path))
+        with open("\\\\?\\" + str(deep_path / "f.bin"), "wb") as f:
+            f.write(b"x" * (2 * MB))
+        rl = tree.inspect_tree(str(long_root))
+        long_child = rl["children"][0] if rl and rl["children"] else {}
+        check(">260 字符路径仍统计大小",
+              long_child.get("kb", 0) > 0 and rl["unavailable"] == 0,
+              repr((long_child, rl["unavailable"] if rl else None)))
+        shutil.rmtree("\\\\?\\" + str(long_root), ignore_errors=True)
+
+    # ── 云占位判断在 reparse 之前（junction 模拟云占位）────────────────
+    if is_win:
+        import subprocess
+        jt = tmp / "extra" / "jt"
+        jt.mkdir(parents=True)
+        (jt / "x.bin").write_bytes(b"x")
+        jl = tmp / "extra" / "jlink"
+        subprocess.run(["cmd", "/c", "mklink", "/J", str(jl), str(jt)], check=True, capture_output=True)
+        original_placeholder = tree.is_cloud_placeholder
+        tree.is_cloud_placeholder = lambda st: bool(getattr(st, "st_file_attributes", 0) & tree.REPARSE)
+        try:
+            rj = tree.inspect_tree(str(jt.parent))
+        finally:
+            tree.is_cloud_placeholder = original_placeholder
+        link_entry = next((c for c in (rj["children"] if rj else []) if c["name"] == "jlink"), {})
+        check("云占位目录不被算作链接",
+              link_entry.get("cloud") is True and rj["skipped"] == 0,
+              repr((link_entry, rj["skipped"] if rj else None)))
+        subprocess.run(["cmd", "/c", "rmdir", str(jl)], check=True, capture_output=True)
+
     check("根目录不可读返回 None", tree.inspect_tree(str(tmp / "不存在")) is None)
 finally:
     for key, value in previous_env.items():
