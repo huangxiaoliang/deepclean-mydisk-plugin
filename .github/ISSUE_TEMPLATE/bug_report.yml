@@ -21,7 +21,7 @@ body:
     attributes:
       label: 插件版本
       description: 设置页可见，或运行 `dsh plugin list` 查看
-      placeholder: 0.12.1
+      placeholder: 0.13.0
     validations:
       required: true
 
