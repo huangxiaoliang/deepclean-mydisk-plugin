@@ -440,6 +440,10 @@ test('purge permanently deletes a batch moved into the quarantine trash', async 
   assert.equal(code, 200)
   assert.equal(body.purged, 1)
   assert.equal(fs.existsSync(item), false)
+  const batch = (await call('/history')).body.cleans.find(b => b.batchId === 'testbatch')
+  assert.equal(batch.items[0].deleted, true)
+  assert.ok(Number.isFinite(Date.parse(batch.items[0].deletedAt)))
+  assert.equal(batch.items[0].exists, false)
 })
 
 

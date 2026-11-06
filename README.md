@@ -29,7 +29,8 @@ dsh plugin --profile <name> add link:/绝对路径/deepclean-mydisk-plugin
 ### 平台依赖
 
 - macOS：系统自带 `python3`（扫描器依赖 `du` / `plutil` / `sips`）；
-- Windows：`py -3`（或 `python`），扫描器与照片解码为纯 Python + PowerShell `.NET`，**不需要 Pillow**；
+- Windows：需要 Python 3.9 或更新版本。插件依次尝试 `py -3`、`python`、`python3`；能运行其中一个即可。照片解码使用 PowerShell `.NET`，**不需要 Pillow**；
+- 找不到可用的 Python 时，点击「让 DSH 帮我安装 Python」，把设置请求发送到当前对话。DSH 会先检查是否已有兼容版本，再请你确认所需的安装或设置。没有打开的对话时，可以复制提示词。设置完成后重启 DSH，再重试扫描。
 - 支持 macOS / Windows；Linux 宿主有分支但**未验收**。
 
 ### 权限
@@ -123,7 +124,7 @@ dsh plugin --profile <name> add link:/绝对路径/deepclean-mydisk-plugin
 - 相似照片范围固定为四个目录、最多 600 张、最小 200 KB；HEIC/WebP 等格式受系统解码能力限制，云盘目录与照片图库会被跳过。
 - 残留细粒度拆分只认目录名像缓存的子目录（Caches/tmp/Code Cache/GPUCache/CacheStorage 等）；缓存目录用了别的名字或 App 仍在运行时，整组仍留在「需确认」。
 - AI 入口依赖当前 DSH 会话与模型；没有打开的会话时只能复制提示词，提示词带的是报告摘要而不是完整报告，模型也可能答错。
-- 依赖本机 Python 3（Windows `py -3`）；缺失时扫描与权限检查不可用。
+- 如果 Windows 提示找不到 Python，在 PowerShell 运行 `py -3 --version`、`python --version` 或 `python3 --version`。如果都无法显示可用版本，请安装 Python 3 并确保命令在 `PATH` 中，然后重启 DSH。
 
 ## 反馈与支持
 

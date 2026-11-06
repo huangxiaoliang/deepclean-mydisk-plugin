@@ -175,6 +175,53 @@ test('english home shows live disk numbers before any scan', () => {
   assert.match(html, /Live/)
 })
 
+test('Full Disk Access scan failure shows one actionable notice instead of scanner output', () => {
+  const blocked = (s) => s.replaceAll('const [scan, setScan] = useState({ status: "idle" });',
+    'const [scan, setScan] = useState({ status: "error", errorCode: "full_disk_access_required", error: "CLI details --force" });')
+  const zh = renderWithData(blocked, 'zh', noScanOverview, mockPhotos, aiStub().ai)
+  assert.equal((zh.match(/class="dc-permission"/g) || []).length, 1)
+  assert.match(zh, /扫描已停止，缺少完全磁盘访问权限/)
+  assert.match(zh, /打开系统设置/)
+  assert.match(zh, /aria-expanded="false">查看开启步骤/)
+  assert.doesNotMatch(zh, /扫描失败，请重试|--force|按 ⌘Q 退出|问 AI 为什么扫不到/)
+
+  const otherError = renderWithData((s) => blocked(s).replaceAll('errorCode: "full_disk_access_required", error: "CLI details --force"', 'errorCode: "", error: "unrelated scanner error"'), 'zh', noScanOverview)
+  assert.match(otherError, /扫描失败，请重试/)
+  assert.match(otherError, /unrelated scanner error/)
+  assert.doesNotMatch(otherError, /class="dc-permission"/)
+})
+
+test('Windows Python setup is shown for a missing runtime and localized', () => {
+  const overview = { ...noScanOverview, platform: 'win32' }
+  const blocked = (s) => s.replaceAll('const [scan, setScan] = useState({ status: "idle" });',
+    'const [scan, setScan] = useState({ status: "error", errorCode: "python_unavailable", error: "internal probe details" });')
+  const zh = renderWithData(blocked, 'zh', overview, mockPhotos, aiStub().ai)
+  assert.match(zh, /让 DSH 帮我安装 Python/)
+  assert.match(zh, /在对话中确认安装/)
+  assert.doesNotMatch(zh, /internal probe details|AI 解释这次失败/)
+  const en = renderWithData(blocked, 'en', overview)
+  assert.match(en, /Ask DSH to install Python/)
+  assert.match(en, /restart DSH and try again/)
+
+  const unrelated = (s) => blocked(s).replaceAll('errorCode: "python_unavailable"', 'errorCode: ""')
+  assert.doesNotMatch(renderWithData(unrelated, 'zh', overview), /让 DSH 帮我安装 Python/)
+})
+
+test('Full Disk Access setup steps and manual fallback are localized', () => {
+  const expanded = (s) => s
+    .replace('useState({ status: "", text: "" })', 'useState({ status: "denied", text: "CLI details --force" })')
+    .replace('const [permSteps, setPermSteps] = useState(false);', 'const [permSteps, setPermSteps] = useState(true);')
+    .replace('const [privacySettingsFailed, setPrivacySettingsFailed] = useState(false);', 'const [privacySettingsFailed, setPrivacySettingsFailed] = useState(true);')
+  const en = renderWithData(expanded, 'en', noScanOverview)
+  assert.match(en, /Full Disk Access is required to scan/)
+  assert.match(en, /Could not open System Settings/)
+  assert.match(en, /System Settings → Privacy &amp; Security → Full Disk Access/)
+  assert.match(en, /select DeepSeek Harness in Applications/)
+  assert.match(en, /Press ⌘Q to quit DeepSeek Harness/)
+  assert.match(en, /Return to Disk checkup and click Start scan/)
+  assert.doesNotMatch(en, /--force/)
+})
+
 test('home falls back to scan report disk when host has no live snapshot', () => {
   const html = renderWithData((s) => s, 'zh', { ...mockOverview, disk: undefined })
   assert.match(html, /已用 372\.5 GB/)
@@ -265,24 +312,32 @@ test('scoped large files from stale folder analysis cannot be selected', () => {
   assert.match(html, /aria-label="选择 \/demo\/dir\/movie.mkv"[^>]*disabled=""/)
 })
 
-test('space chart includes all items in total and aggregates the tail consistently', () => {
+test('space waves use the full total and preserve the area of the aggregated tail', () => {
   const children = Array.from({length:9},(_,i)=>({path:'/demo/'+i,name:'item'+i,kb:1024,isDir:true}))
   const mutate=s=>cases.find(([n])=>n==='space-tree')[1](s).replace('const [data, setData] = useState(null);','const [data, setData] = useState('+JSON.stringify({path:'/demo',at:Date.now(),children,metric:'allocated'})+');')
   const html=renderView(mutate)
   assert.ok(html.includes('9 MB'))
   assert.ok(html.includes('item8'))
   assert.ok(html.includes('其他'))
-  assert.ok(html.includes('33%'))
+  assert.ok(html.includes('其他 · 6 MB · 67%'))
   assert.ok(!html.includes('NaN'))
+  const paths = [...html.matchAll(/class="dc-tide-band" d="([^"]+)"/g)].map(([, d]) => d)
+  const heights = paths.map(d => {
+    const [, top, bottom] = d.match(/1000 ([\d.]+) L1000 ([\d.]+)/)
+    return Number(bottom) - Number(top)
+  })
+  assert.equal(paths.length, 4)
+  assert.ok(Math.abs(heights[3] / heights.reduce((a, b) => a + b) - 6 / 9) < 1e-9)
 })
 
-test('space tail segment and legend rows are expandable', () => {
+test('space waves expose selectable labels and an action for the aggregated tail', () => {
   const children = Array.from({length:9},(_,i)=>({path:'/demo/'+i,name:'item'+i,kb:1024,isDir:true}))
-  const mutate=s=>cases.find(([n])=>n==='space-tree')[1](s).replace('const [data, setData] = useState(null);','const [data, setData] = useState('+JSON.stringify({path:'/demo',at:Date.now(),children,metric:'allocated'})+');')
+  const mutate=s=>cases.find(([n])=>n==='space-tree')[1](s)
+    .replace('const [data, setData] = useState(null);','const [data, setData] = useState('+JSON.stringify({path:'/demo',at:Date.now(),children,metric:'allocated'})+');')
+    .replace('const [selectedPath, setSelectedPath] = useState("");','const [selectedPath, setSelectedPath] = useState(null);')
   const html=renderView(mutate)
-  assert.ok(html.includes('其他'))
-  const legendButtons = html.match(/<button[^>]*class="dc-space-legend"/g) || []
-  assert.equal(legendButtons.length, 7, 'legend rows are buttons, including the tail segment')
+  assert.match(html, /<button[^>]*aria-label="其他 · 6 MB · 67%" aria-pressed="true"/)
+  assert.match(html, /<button[^>]*>查看其他项目<\/button>/)
 })
 
 test('space tree marks cleanable portions from the fresh report', () => {
@@ -290,7 +345,7 @@ test('space tree marks cleanable portions from the fresh report', () => {
   const mutate=s=>cases.find(([n])=>n==='space-tree')[1](s).replace('const [data, setData] = useState(null);','const [data, setData] = useState('+JSON.stringify({path:'/demo',at:Date.now(),children,metric:'allocated'})+');')
   const zh = renderWithData(mutate,'zh')
   assert.ok(zh.includes('其中可清理'), 'folders with cleanable entries show a badge')
-  assert.equal((zh.match(/其中可清理/g) || []).length, 1, 'only /tmp has cleanable entries, not /var')
+  assert.equal((zh.match(/其中可清理/g) || []).length, 2, 'only /tmp has the estimate, in its inspector and table row')
   const stale = renderWithData(mutate,'zh',{ ...mockOverview, at: Date.now()-11*60000 })
   assert.ok(!stale.includes('其中可清理'), 'stale reports must not promise cleanable space')
   const en = renderWithData(mutate,'en')
@@ -405,16 +460,16 @@ test('read-only rows offer reveal in the detail panel', () => {
 })
 
 test('fda banner shows on home and clean pages when permission is denied', () => {
-  const deny = (s) => s.replace('useState({ status: "ok", text: "" })', 'useState({ status: "denied", text: "step1 step2" })')
+  const deny = (s) => s.replace('useState({ status: "", text: "" })', 'useState({ status: "denied", text: "probe details" })')
   const home = renderWithData((s) => deny(s), 'zh', mockOverview)
-  assert.match(home, /未授权完全磁盘访问，扫描结果会严重漏报。/)
+  assert.match(home, /扫描前需要开启完全磁盘访问权限/)
   assert.match(home, /打开系统设置/)
-  assert.match(home, /查看详细步骤/)
-  assert.match(home, /重新检查/)
+  assert.match(home, /查看开启步骤/)
+  assert.doesNotMatch(home, /重新检查|probe details/)
   const clean = renderWithData((s) => deny(cases.find(([n]) => n === 'clean-junk')[1](s)), 'zh', mockOverview)
   assert.match(clean, /打开系统设置/)
   const en = renderWithData((s) => deny(s), 'en', mockOverview)
-  assert.match(en, /Full Disk Access not granted/)
+  assert.match(en, /Full Disk Access is required to scan/)
   assert.match(en, /Open System Settings/)
   const granted = renderWithData((s) => s, 'zh', mockOverview)
   assert.ok(!granted.includes('打开系统设置'), 'granted status renders no banner')
@@ -424,6 +479,26 @@ test('history offers permanent deletion of a batch', () => {
   const mutate = cases.find(([n]) => n === 'history')[1]
   const zh = renderWithData(mutate, 'zh')
   assert.match(zh, /永久删除此批次/)
+})
+
+test('history distinguishes partial outcomes without estimating missing sizes', () => {
+  const now = Date.now()
+  const mutate = cases.find(([n]) => n === 'history')[1]
+  const overview = { ...mockOverview, cleanBatches: [{
+    batchId: 'mixed', at: now - 86400000, count: 4, restorable: 1, restored: 1, purged: true,
+    items: [
+      { from: '/demo/live', exists: true, kb: null },
+      { from: '/demo/restored', restored: true, restoredAt: now - 3000, kb: 1024 },
+      { from: '/demo/deleted', deleted: true, deletedAt: now - 2000, kb: 2048 },
+      { from: '/demo/unknown', exists: false, kb: null },
+    ],
+  }] }
+  const html = renderWithData(mutate, 'en', overview)
+  assert.match(html, /Restored · 1 items · About 1 MB/)
+  assert.match(html, /Permanently deleted · 1 items · About 2 MB/)
+  assert.match(html, /Outcome unrecorded · 1 items/)
+  assert.match(html, /Still restorable · 1 items</)
+  assert.match(html, /Dashed ribbons indicate batches with missing size data/)
 })
 
 test('wizard confirm estimates real release', () => {

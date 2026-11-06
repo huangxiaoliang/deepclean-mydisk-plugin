@@ -2,6 +2,7 @@
  * Run: node scripts/preview.mjs (no build, install, or user-file mutations).
  * ?data=1 opens with scan results. ?data=1&expired=1 previews an expired scan.
  * DEEPCLEAN_PREVIEW_FDA=denied previews the Full Disk Access banner (macOS denied state).
+ * DEEPCLEAN_PREVIEW_PYTHON=missing previews Windows Python setup; ?ai=no-session tests clipboard fallback.
  */
 import http from 'node:http'
 import fs from 'node:fs'
@@ -16,6 +17,9 @@ const packages = { react: ['react', 'react.production.js'], 'react-dom': ['react
 const factories = Object.entries(packages).map(([name, [pkg, file]]) => `${JSON.stringify(name)}:function(module,exports,require){${fs.readFileSync(path.join(path.dirname(domRequire.resolve(pkg)), 'cjs', file), 'utf8')}\n}`).join(',')
 const runtime = `(()=>{const modules={${factories}},cache={};window.require=function require(id){if(cache[id])return cache[id].exports;if(!modules[id])throw Error('Unknown preview module '+id);const module={exports:{}};cache[id]=module;modules[id](module,module.exports,require);return module.exports}})();`
 const disk = () => ({ ...previewReport().disk, mount: '/demo', at: Date.now() })
+const permissionDenied = process.env.DEEPCLEAN_PREVIEW_FDA === 'denied'
+const pythonMissing = process.env.DEEPCLEAN_PREVIEW_PYTHON === 'missing'
+const pythonError = { errorCode: 'python_unavailable', error: '示例环境：找不到可用的 Python 3' }
 let state
 function reset(data, expired = false) {
   const now = Date.now()
@@ -25,12 +29,18 @@ function reset(data, expired = false) {
     { at: now - 2 * 86400000, platform: 'darwin', free: 93e9, total: 228e9, elapsed: 21, safeKb: 800000, cacheKb: 1800000, devKb: 2800000, totalKb: 5400000 },
   ] : []
   const derivedData = '/demo/Library/Developer/Xcode/DerivedData'
+  const day = 86400000
+  const gb = 1024 * 1024
   const batches = data ? [{
-    batchId: 'demo-previous', at: new Date(now - 3 * 86400000).toISOString(), count: 3, restorable: 3,
-    // 演示「清了又长回来」：清理时与当前报告里的 DerivedData 都是 1.6 GB。
+    batchId: 'demo-browser', at: now - 2 * day, count: 1, restorable: 1,
+    items: [{ from: '/demo/Library/Caches/Chrome', to: '/demo-trash/Chrome', exists: true, kb: 3.2 * gb, category: 'browser' }],
+  }, {
+    batchId: 'demo-previous', at: now - 6 * day, count: 3, restorable: 0, restored: 1, purged: true,
+    // 演示同一批次分流：1 GB 已恢复，5 GB 已永久删除。
     items: [
-      { from: derivedData, to: '/demo-trash/DerivedData', exists: true, kb: 1.6 * 1024 * 1024, category: 'dev' },
-      { from: '/demo/.npm/_cacache', to: '/demo-trash/_cacache', exists: true, kb: .8 * 1024 * 1024, category: 'dev' },
+      { from: derivedData, to: '/demo-trash/DerivedData', exists: false, deleted: true, deletedAt: now - day, kb: 1.6 * gb, category: 'dev' },
+      { from: '/demo/.npm/_cacache', to: '/demo-trash/_cacache', exists: false, restored: true, restoredAt: now - 4 * day, kb: 1 * gb, category: 'dev' },
+      { from: '/demo/.gradle/caches', to: '/demo-trash/gradle', exists: false, deleted: true, deletedAt: now - day, kb: 3.4 * gb, category: 'dev' },
     ],
   }] : []
   state = { scenario: `${!!data}:${!!expired}`, report: data ? previewReport() : null, at: data ? now - (expired ? 11 * 60000 : 0) : 0, scan: { status: 'idle' }, startedAt: 0, whitelist: [], history, batches, requests: [], removed: [] }
@@ -39,21 +49,43 @@ reset(false)
 function updateScan() {
   if (state.scan.status !== 'running') return
   const elapsed = Date.now() - state.startedAt
+  if (pythonMissing) {
+    state.scan = { ...state.scan, status: 'error', ...pythonError }
+    return
+  }
+  if (permissionDenied) {
+    state.scan = { status: 'error', progress: 0, errorCode: 'full_disk_access_required', error: '示例环境：完全磁盘访问权限未授权' }
+    return
+  }
   if (elapsed > 3000) { state.report = previewReport(); state.at = Date.now(); state.scan = { status: 'done', full: true, progress: 100, elapsed: 3, stage: '完成' } }
   else state.scan = { status: 'running', progress: Math.min(95, Math.round(elapsed / 32)), elapsed: Math.floor(elapsed / 1000), stage: '扫描开发缓存' }
 }
-const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>DeepClean · 示例数据预览</title><style>html,body,#root{height:100%;margin:0}body{background:#fff}</style></head><body><div id="root"></div><script src="/runtime.js"></script><script>window.__ModuleLoader__={load(def){window.panelDefinition=def}};window.__previewErrors=[];window.addEventListener('error',e=>window.__previewErrors.push(e.message));window.addEventListener('unhandledrejection',e=>window.__previewErrors.push(String(e.reason)));</script><script src="/client.js"></script><script>(async()=>{const q=new URLSearchParams(location.search);await fetch('/__preview/reset?data='+q.get('data')+'&expired='+q.get('expired'));const React=require('react'),mod=window.panelDefinition.factory(require);let Panel;window.__previewAiPrompts=[];const previewAi={available:true,ask:async(text)=>{window.__previewAiPrompts.push(text);console.log('[preview AI prompt]\n'+text);return 'sent'}};mod.apply({slots:{inject(_n,cb){cb()},register(spec,comp){if(spec.name==='main')Panel=comp;return()=>{}}}});require('react-dom/client').createRoot(document.getElementById('root')).render(React.createElement(Panel,{ai:previewAi}));})();</script></body></html>`
+const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>DeepClean · 示例数据预览</title><style>html,body,#root{height:100%;margin:0}body{background:#fff}</style></head><body><div id="root"></div><script src="/runtime.js"></script><script>window.__ModuleLoader__={load(def){window.panelDefinition=def}};window.__previewErrors=[];window.addEventListener('error',e=>window.__previewErrors.push(e.message));window.addEventListener('unhandledrejection',e=>window.__previewErrors.push(String(e.reason)));</script><script src="/client.js"></script><script>(async()=>{const q=new URLSearchParams(location.search);await fetch('/__preview/reset?data='+q.get('data')+'&expired='+q.get('expired'));const React=require('react'),mod=window.panelDefinition.factory(require);let Panel;window.__previewAiPrompts=[];const previewAi={available:true,ask:async(text)=>{if(q.get('ai')==='no-session')return 'no-session';window.__previewAiPrompts.push(text);console.log('[preview AI prompt]\\n'+text);return 'sent'}};mod.apply({slots:{inject(_n,cb){cb()},register(spec,comp){if(spec.name==='main')Panel=comp;return()=>{}}}});require('react-dom/client').createRoot(document.getElementById('root')).render(React.createElement(Panel,{ai:previewAi}));})();</script></body></html>`
 const quarantine = () => {
   const batches = state.batches.filter((b) => b.restorable > 0)
-  const kbOf = (b) => (b.items || []).reduce((m, i) => m + (Number(i.kb) || 0), 0)
+  const kbOf = (b) => b.items.filter(i => i.exists).reduce((m, i) => m + (Number(i.kb) || 0), 0)
   return {
     root: '/demo/.Trash',
     kb: batches.reduce((n, b) => n + kbOf(b), 0),
-    files: batches.reduce((n, b) => n + (b.items || []).length, 0),
-    batches: batches.map((b) => ({ batchId: b.batchId, kb: kbOf(b), files: (b.items || []).length, at: Number(b.at) || Date.now() })),
+    files: batches.reduce((n, b) => n + b.restorable, 0),
+    batches: batches.map((b) => ({ batchId: b.batchId, kb: kbOf(b), files: b.restorable, at: Number(b.at) || Date.now() })),
     truncated: false,
     systemTrashKb: 204800,
   }
+}
+function finishBatch(batch, action) {
+  if (!batch) return []
+  const items = batch.items.filter(item => item.exists)
+  const at = Date.now()
+  for (const item of items) {
+    item.exists = false
+    item[action] = true
+    item[action + 'At'] = at
+  }
+  batch.restorable = 0
+  batch.restored = batch.items.filter(item => item.restored).length
+  batch.purged = batch.items.some(item => item.deleted)
+  return items
 }
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost')
@@ -72,19 +104,25 @@ const server = http.createServer(async (req, res) => {
     const api = url.pathname.replace('/dsh-deepclean/api', '')
     if (req.method !== 'GET') state.requests.push({ api, body })
     updateScan()
-    if (api === '/overview') return json({ at: state.at, report: state.report, disk: disk(), scan: state.scan, whitelist: state.whitelist, platform: 'darwin', history: state.history, cleanBatches: state.batches, quarantine: quarantine() })
+    if (api === '/overview') return json({ at: state.at, report: state.report, disk: disk(), scan: state.scan, whitelist: state.whitelist, platform: pythonMissing ? 'win32' : 'darwin', history: state.history, cleanBatches: state.batches, quarantine: quarantine() })
     if (api === '/quarantine') return json(quarantine())
     if (api === '/reclaim') { const n = (body.paths || []).length; return json({ logicalBytes: n * 104857600, allocatedBytes: n * 100663296, files: n * 12, truncated: false, snapshots: 2 }) }
-    if (api === '/quarantine/purge') { const ids = Array.isArray(body.batchIds) && body.batchIds.length ? new Set(body.batchIds) : null; let purged = 0; for (const b of state.batches) { if (b.restorable > 0 && (!ids || ids.has(b.batchId))) { purged += (b.items || []).length; b.restorable = 0 } } return json({ total: { purged, freedBytes: purged * 1048576 }, batches: [], results: [] }) }
-    if (api === '/purge') { const b = state.batches.find((x) => x.batchId === body.batchId) || state.batches[0]; if (b) b.restorable = 0; return json({ batchId: b && b.batchId, purged: 1, freedBytes: 1048576, results: [] }) }
+    if (api === '/quarantine/purge' || api === '/purge') {
+      const ids = api === '/purge' ? [body.batchId] : body.batchIds
+      const targets = state.batches.filter(b => b.restorable > 0 && (ids ? ids.includes(b.batchId) : body.all === true))
+      const items = targets.flatMap(batch => finishBatch(batch, 'deleted'))
+      const summary = { purged: items.length, freedBytes: Math.round(items.reduce((n, i) => n + (i.kb || 0) * 1024, 0)) }
+      const results = items.map(i => ({ from: i.from, to: i.to, ok: true }))
+      return json(api === '/purge' ? { batchId: body.batchId, ...summary, results } : { total: summary, batches: [], results })
+    }
     if (api === '/disk') return json({ disk: disk() })
     if (api === '/state') { const ids = state.batches.filter(b => b.restorable > 0).map(b => b.batchId); return json({ canUndo: ids.length > 0, lastBatchId: ids[ids.length - 1] || null, lastBatchIds: ids }) }
-    if (api === '/scan' && req.method === 'POST') { state.startedAt = Date.now(); state.scan = { status: 'running', progress: 0 }; return json({ scan: state.scan }) }
+    if (api === '/scan' && req.method === 'POST') { state.startedAt = Date.now(); state.scan = { status: 'running', progress: 0, full: !!body.full }; return json({ scan: state.scan }) }
     if (api === '/scan') return json({ scan: state.scan })
     if (api === '/scan/cancel') { state.scan = { status: 'canceled', progress: 0 }; return json({ scan: state.scan }) }
     if (api === '/permissions') {
-      const denied = process.env.DEEPCLEAN_PREVIEW_FDA === 'denied'
-      return json(denied
+      if (pythonMissing) return json(pythonError, 500)
+      return json(permissionDenied
         ? { code: 2, status: 'denied', text: '权限检查：macOS 完全磁盘访问 = **未授权**（示例环境模拟）\n\n1. 打开「系统设置」→「隐私与安全性」→「完全磁盘访问权限」\n2. 点「+」添加 DeepSeek Harness（或打开已有开关）\n3. 完全退出并重新打开 DeepSeek Harness' }
         : { code: 0, status: 'ok', text: '示例环境：权限检查通过' })
     }
@@ -98,10 +136,20 @@ const server = http.createServer(async (req, res) => {
       state.batches.unshift({ batchId, at: Date.now(), count: moved, restorable: moved, items })
       return json({ batchId, batchIds: [batchId], moved, results, batches: [{ batchId, moved, results }], auditOk: true })
     }
-    if (api === '/undo' || api === '/restore') { const ids = Array.isArray(body.batchIds) ? body.batchIds : (body.batchId ? [body.batchId] : []); const targets = ids.length ? state.batches.filter(b => ids.includes(b.batchId)) : [state.batches[0]]; const results = []; for (const batch of targets) { if (!batch) continue; batch.restorable = 0; results.push(...(batch.items || []).map(i => ({ path: i.from, ok: true }))); } return json({ batchId: targets[0] && targets[0].batchId, results, summary: { ok: results.length, failed: 0, codes: {} }, auditOk: true }) }
+    if (api === '/undo' || api === '/restore') {
+      const ids = Array.isArray(body.batchIds) ? body.batchIds : (body.batchId ? [body.batchId] : [])
+      const targets = ids.length ? state.batches.filter(b => ids.includes(b.batchId)) : [state.batches[0]]
+      const results = targets.flatMap(batch => finishBatch(batch, 'restored')).map(i => ({ path: i.from, ok: true }))
+      return json({ batchId: targets[0]?.batchId, results, summary: { ok: results.length, failed: 0, codes: {} }, auditOk: true })
+    }
     if (api === '/whitelist') { state.whitelist = body.paths || []; return json({ paths: state.whitelist }) }
-    if (api === '/photos') return json({ scan: { status: 'idle' }, result: null })
+    if (api === '/photos/scan' && pythonMissing) {
+      state.photosScan = { status: 'error', ...pythonError }
+      return json({ scan: state.photosScan }, 202)
+    }
+    if (api === '/photos') return json({ scan: state.photosScan || { status: 'idle' }, result: null })
     if (api === '/tree') {
+      if (pythonMissing) return json(pythonError, 400)
       const folder = url.searchParams.get('path') || '/demo'
       const bigFiles = [
         { path: folder + '/Archives/preview-4k.mkv', kb: 4200000, mtime: Math.floor(Date.now() / 1000) - 86400 * 120 },
