@@ -393,8 +393,11 @@ test('seeded drill-down keeps cloud counters, hard-link metadata and caps', asyn
   const a = path.join(child, 'a.bin')
   fs.writeFileSync(a, Buffer.alloc(2 * 1024 * 1024, 1))
   fs.linkSync(a, path.join(child, 'b.bin'))
-  const prevOneDrive = process.env.OneDrive
-  process.env.OneDrive = cloud
+  // 云盘根走宿主注入通道：macOS 的 cloudRoots() 只认 ~/Library/CloudStorage 与
+  // Mobile Documents，不读 OneDrive 环境变量（那是 Windows 分支），用环境变量会在这个用例里
+  // 悄悄退化成「没有云盘」。
+  const prevCloudRoots = process.env.DEEPCLEAN_CLOUD_ROOTS
+  process.env.DEEPCLEAN_CLOUD_ROOTS = JSON.stringify([cloud])
   const getTree = async (p, refresh = false) => {
     const res = mockRes()
     const url = '/dsh-deepclean/api/tree?path=' + encodeURIComponent(p) + (refresh ? '&refresh=1' : '')
@@ -419,8 +422,8 @@ test('seeded drill-down keeps cloud counters, hard-link metadata and caps', asyn
     assert.equal(bigs.length, 1, 'one inode must appear once in bigFiles')
     assert.equal(bigs[0].shared, true)
   } finally {
-    if (prevOneDrive === undefined) delete process.env.OneDrive
-    else process.env.OneDrive = prevOneDrive
+    if (prevCloudRoots === undefined) delete process.env.DEEPCLEAN_CLOUD_ROOTS
+    else process.env.DEEPCLEAN_CLOUD_ROOTS = prevCloudRoots
     if (home === undefined) delete process.env.HOME
     else process.env.HOME = home
   }
