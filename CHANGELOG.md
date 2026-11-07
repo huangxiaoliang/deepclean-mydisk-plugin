@@ -1,10 +1,14 @@
 # deepclean-mydisk 插件变更
 
-## Unreleased
-
+## 0.14.3 — 2026-11-08
+- 新增（市场索引）：自建 format-1 插件索引 `docs/market/index.json`，条目的 `homepage` 直接指向 GitHub README（示例条目可删）；`docs/market/README.md` 说明本地预览、jsDelivr 托管、profile 配置与字段规则；`scripts/update-market-index.mjs` 从 npm registry 刷新版本与 `publishTimestamp`（支持 `--check` / `--dry-run`）；`.github/workflows/market-index.yml` 在发版、每日 06:00（Asia/Shanghai）与手动触发时刷新并提交索引
+- 文档（市场详情页）：`docs/plugin/DETAIL.zh.md` / `DETAIL.en.md` 与 README 对齐重写——同一组 CI / Windows 验收 / npm / License / 平台徽章，安装、界面结构、功能、安全边界、已知限制、反馈与支持逐节对应，中英各一份；保留包内截图（首页 / 清理 / 移动）
+- 文档（联系信息）：README 与中英详情页的「反馈与支持 / Feedback and support」新增联系邮箱 `coolway.me@gmail.com`
+- 文档（同步）：README / CONTRIBUTING / SECURITY / SUPPORT / copy-terms / Windows 验收与 CI / `.claude/skills` 对齐 6 个一级入口（体检 / 清理 / 空间 / 软件 / 历史 / 设置）；`scripts/acceptance-windows.ps1` 的断言改用「无需移动」措辞
 - 仓库治理（隐私）：公开仓库历史中的 38 个提交，作者与提交者邮箱由公司邮箱改为 GitHub noreply（`huangxiaoliang@users.noreply.github.com`）；已 force push `main` 与受影响的 11 个 tag，提交内容、作者名、作者时间与提交标题均未改变，15 个 Release 已跟随新 tag
 - 文档（开源收尾）：README 顶部增加 CI / npm / License / 平台徽章；新增 `CODE_OF_CONDUCT.md`（Contributor Covenant 2.1 中文版）与 `.github/pull_request_template.md`（安全红线与验证清单）；`CONTRIBUTING.md` 补充贡献流程并把测试数字更新为 340
 - 文档（隐私）：`design-qa.md` 中 7 处本机绝对路径改为本地截图说明，不再暴露用户名与目录结构
+- 测试 340（macOS 337 pass / 3 skip；Windows 按 340 总数应为 331 pass / 9 skip，以 CI 实测为准）；本轮无代码路径变更，沿用既有用例
 
 ## 0.14.2 — 2026-11-07
 - 修复（撤销作用域）：撤销入口只针对**最近一次清理操作**产生的批次组（分片清理的多个批次）；更早批次仍可从历史逐批恢复/释放，「撤销上次清理」不再把更早的清理一起恢复；本次清理未移动任何文件时保留上一次可撤销组，`/state` 只暴露仍存在于内存撤销队列的批次
