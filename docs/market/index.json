@@ -1,0 +1,99 @@
+{
+  "format": 1,
+  "title": {
+    "en": "Personal DSH plugin index",
+    "zh": "个人 DSH 插件索引"
+  },
+  "description": {
+    "en": "A self-hosted index that keeps the homepage link on each plugin's GitHub README instead of a third-party catalog page.",
+    "zh": "自建索引：每个插件的「主页」直接指向 GitHub 仓库 README，而不是第三方目录页。"
+  },
+  "metadata": {
+    "categories": {
+      "memory": {
+        "title": {
+          "en": "Memory",
+          "zh": "记忆"
+        }
+      },
+      "tools": {
+        "title": {
+          "en": "Tools",
+          "zh": "工具"
+        }
+      }
+    }
+  },
+  "plugins": [
+    {
+      "name": "@yolk_vat-y/dsh-project-memory",
+      "title": "00080000/dsh-project-memory",
+      "description": {
+        "en": "Project memory for dsh with native task-system integration: session todos and file reads auto-condense into cross-session task records (task↔file links), so workflows are switchable and resumable without re-scoping the project.",
+        "zh": "为 DeepSeek Harness 提供持久化的项目级记忆，原生融合 dsh 任务系统：会话内任务清单与读过的文件自动沉淀为跨会话任务记录，任务↔文件自动关联，开发工作流可切换、可续接。"
+      },
+      "author": "00080000",
+      "homepage": "https://github.com/00080000/dsh-project-memory#readme",
+      "repository": {
+        "url": "https://github.com/00080000/dsh-project-memory"
+      },
+      "metadata": {
+        "category": "memory",
+        "keywords": [
+          "dsh",
+          "dsh-plugin",
+          "memory",
+          "project-memory"
+        ]
+      },
+      "versions": [
+        {
+          "version": "0.6.11",
+          "publishTimestamp": 1793938930,
+          "source": {
+            "type": "npm"
+          },
+          "engines": {}
+        }
+      ]
+    },
+    {
+      "name": "deepclean-mydisk",
+      "title": "huangxiaoliang/deepclean-mydisk-plugin",
+      "description": {
+        "en": "Disk cleanup for macOS and Windows: risk-tiered read-only audit, space breakdown, similar-photo grouping, and moves caches, leftovers and photos to the Trash or quarantine with undo.",
+        "zh": "macOS 与 Windows 磁盘清理：分档只读体检与空间分布，把缓存、残留与相似照片移入废纸篓或隔离区，可撤销。"
+      },
+      "author": "huangxiaoliang",
+      "homepage": "https://github.com/huangxiaoliang/deepclean-mydisk-plugin#readme",
+      "repository": {
+        "url": "https://github.com/huangxiaoliang/deepclean-mydisk-plugin"
+      },
+      "icon": "https://cdn.jsdelivr.net/gh/huangxiaoliang/deepclean-mydisk-plugin@main/assets/icon-180.png",
+      "metadata": {
+        "category": "tools",
+        "keywords": [
+          "dsh",
+          "dsh-plugin",
+          "disk",
+          "storage",
+          "cleanup",
+          "macos",
+          "windows"
+        ]
+      },
+      "versions": [
+        {
+          "version": "0.14.2",
+          "publishTimestamp": 1794065580,
+          "source": {
+            "type": "npm"
+          },
+          "engines": {
+            "dsh": ">=0.2.1-rc.5 <0.3.0-0 || >=0.2.2-rc.1 <0.3.0-0"
+          }
+        }
+      ]
+    }
+  ]
+}

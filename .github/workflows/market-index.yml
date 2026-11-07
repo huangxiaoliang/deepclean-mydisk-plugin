@@ -1,0 +1,41 @@
+name: market-index
+
+# Keeps the self-hosted market index (docs/market/index.json) in step with npm:
+# after a release, on a daily schedule, or when dispatched by hand.
+on:
+  release:
+    types: [published]
+  schedule:
+    - cron: "0 22 * * *" # 06:00 Asia/Shanghai
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: market-index
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Refresh index versions from npm
+        run: node scripts/update-market-index.mjs
+      - name: Commit the refreshed index
+        run: |
+          if git diff --quiet -- docs/market/index.json; then
+            echo "docs/market/index.json is already up to date"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/market/index.json
+          git commit -m "chore(market): refresh plugin index versions"
+          git push

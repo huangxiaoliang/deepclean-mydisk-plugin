@@ -60,7 +60,9 @@
     "./locale/*.json": "./locale/*.json"
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "market:index": "node scripts/update-market-index.mjs",
+    "market:index:check": "node scripts/update-market-index.mjs --check"
   },
   "repository": {
     "type": "git",
