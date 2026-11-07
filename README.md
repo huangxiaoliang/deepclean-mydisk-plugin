@@ -154,6 +154,7 @@ dsh plugin --profile <name> add link:/绝对路径/deepclean-mydisk-plugin
 
 ## 反馈与支持
 
+- **联系邮箱**：**coolway.me@gmail.com**
 - **面板内**：设置页「反馈与联系」直接提供邮箱、微信与 GitHub 仓库地址，以及打开仓库页的 Star 入口（Star 仍需在 GitHub 登录后手动点）。
 - **Bug / 使用问题 / 功能建议**：请开 [GitHub Issue](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/issues/new/choose)（推荐用问题模板）。
 - **安全问题**（越权删除、路径逃逸、恢复失败、隐私泄露等）：不要公开提 Issue，请发邮件到 **coolway.me@gmail.com**，详见 [SECURITY.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/SECURITY.md)。

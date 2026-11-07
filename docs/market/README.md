@@ -6,7 +6,7 @@
 
 - `docs/market/index.json` — 索引本体，当前两条：
   - `@yolk_vat-y/dsh-project-memory`（`00080000/dsh-project-memory`），`homepage` 指向其 GitHub README（示例条目，不需要可删）；
-  - `deepclean-mydisk`，`homepage` 指向本仓库 README，版本 `0.14.2`。
+  - `deepclean-mydisk`，`homepage` 指向本仓库 README，版本见 `index.json`（由 npm 自动刷新）。
 - `scripts/update-market-index.mjs` — 从 npm registry 刷新版本。
 - `.github/workflows/market-index.yml` — 定时/发版后自动刷新并提交。
 

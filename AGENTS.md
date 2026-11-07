@@ -35,7 +35,7 @@ DSH 插件：原生侧边栏磁盘空间工具（macOS / Windows），只读体�
 |---|---|
 | `locale/zh.json` / `locale/en.json` | 插件市场元数据（名称、简介、详情页路径） |
 | `assets/icon-180.png` | 插件市场 180×180 图标（`package.json#icon`） |
-| `docs/plugin/DETAIL.zh.md` / `DETAIL.en.md` + `shot-*.jpg` | 插件详情页文案与截图（`screenshots.json` 引用这四张图） |
+| `docs/plugin/DETAIL.zh.md` / `DETAIL.en.md` + `shot-*.jpg` | 插件详情页文案与截图：内容与 README 对齐（含同一组徽章），中英各一份，由 `locale/*.json` 的 `meta.detail` 指定；`screenshots.json` 引用这四张图 |
 | `docs/market/awesome-entry.yml` | 市场/awesome 条目元数据 |
 | `docs/market/index.json` | 自建插件市场索引（format 1）：条目的 `homepage` 指向对应 GitHub README，`versions` 由 `npm run market:index` 从 npm registry 刷新；用 jsDelivr / 任意静态托管加进「发现 → 索引源」 |
 | `docs/market/README.md` | 自建索引的使用说明：本地预览、jsDelivr / profile 配置、刷新脚本、条目字段与 DSH 侧行为备忘 |
