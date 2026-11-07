@@ -674,7 +674,9 @@ def estimate_of(r):
     cache_map = {os.path.normcase(c["path"]): c["kb"] for c in r["caches"]
                  if c["safe"] and not c["system"] and c.get("cleanable", True)
                  and not _overlaps_specific(c["path"], specific)}
-    dev_map = {os.path.normcase(d["path"]): d["kb"] for d in r["devCaches"]}
+    # 与清理允许集合 / 面板同口径：cleanable=False 的开发缓存只展示，不计入可释放。
+    dev_map = {os.path.normcase(d["path"]): d["kb"] for d in r["devCaches"]
+               if d.get("cleanable", True)}
     overlap_kb = sum(min(cache_map[p], dev_map[p]) for p in set(cache_map) & set(dev_map))
     cache_kb = sum(cache_map.values()) - overlap_kb
     dev_kb = sum(dev_map.values())
@@ -910,13 +912,24 @@ def render(r, args):
     safe_kb = est.get("safeKb", 0)
     cache_kb = est.get("cacheKb", 0)
     dev_kb = est.get("devKb", 0)
+    browser_kb = est.get("browserKb", 0)
+    app_cache_kb = est.get("appCacheKb", 0)
+    # 合计以 estimate.totalKb 为准（与 JSON / 面板可勾选合计同源）；旧报告没有
+    # totalKb 时按六项分项回退（Windows special 恒 0），避免少报浏览器 / 应用缓存。
+    total_kb = est.get("totalKb")
+    if total_kb is None:
+        total_kb = safe_kb + cache_kb + dev_kb + browser_kb + app_cache_kb
     a("## 九、预计可释放")
     a("")
     a(f"- 推荐清理（缓存/临时文件，已去重）：**{human(cache_kb)}**")
     if safe_kb:
         a(f"- 已卸载残留（推荐清理）：**{human(safe_kb)}**")
     a(f"- 开发缓存：**{human(dev_kb)}**")
-    a(f"- 合计约：**{human(safe_kb + cache_kb + dev_kb)}**（不含需确认项）")
+    if browser_kb:
+        a(f"- 浏览器缓存：**{human(browser_kb)}**（可重建，不碰书签/密码）")
+    if app_cache_kb:
+        a(f"- 应用缓存：**{human(app_cache_kb)}**（可重建）")
+    a(f"- 合计约：**{human(total_kb)}**（不含需确认项）")
     if est.get("overlapKb"):
         a(f"- 已避免重复计算：{human(est['overlapKb'])}（同时出现在缓存与开发缓存中）")
     a("")

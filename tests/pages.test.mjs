@@ -162,6 +162,16 @@ test('update badge appears next to the product title only when a compatible upda
   assert.doesNotMatch(plain, /class="dc-update-badge"/, 'no badge without an available update')
 })
 
+test('dark theme keeps the update badge readable', () => {
+  // 浅色底 #eef4ff + 暗色文字 var(--dc-blue)=#91b4ff 在暗色主题下对比度只有 1.87:1；
+  // 徽标必须在暗色主题里换成深色底（主题变量），不能沿用固定浅色背景。
+  const darkBlocks = [...base.matchAll(/@media\(prefers-color-scheme:dark\)\{([^}]*)\}/g)].map((m) => m[1])
+  const badgeDark = darkBlocks.find((block) => block.includes('.dc-update-badge'))
+  assert.ok(badgeDark, 'dark theme must override the update badge surface')
+  assert.match(badgeDark, /background:var\(--dc-select\)/)
+  assert.match(badgeDark, /border-color:rgba\(145,180,255,\.45\)/)
+})
+
 test('update dialog names the version pair and explains the restart', () => {
   const mutate = cases.find(([n]) => n === 'update-dialog')[1]
   const zh = renderWithData(mutate, 'zh', mockOverview)

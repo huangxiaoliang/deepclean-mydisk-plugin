@@ -1299,3 +1299,31 @@ exit 0
   assert.equal(scan.status, 'done', 'history write failure must not turn a finished scan into an error')
   assert.ok((await call('/scan')).body.report, 'the finished report stays available for cleanup')
 })
+
+test('estimateOf excludes non-cleanable dev caches and keeps its parts consistent', async () => {
+  const { estimateOf } = await import('../lib/index.js')
+  const report = {
+    minLeftoverKb: 0,
+    leftoverGroups: [
+      { baseId: 'a', bucket: 'safe', kb: 2000, paths: ['/h/Library/Containers/com.a/Data/Library/Caches'] },
+      { baseId: 'b', bucket: 'confirm', kb: 7000, paths: ['/h/Library/Containers/com.b/Data'] },
+    ],
+    caches: [{ path: '/h/Library/Caches/Keep', kb: 1200 }],
+    devCaches: [
+      { path: '/h/Library/Developer/Xcode/DerivedData', kb: 1000, cleanable: true },
+      // Xcode Archives / CoreSimulator / Docker vms 这类只展示、不可勾选的开发缓存
+      { path: '/h/Library/Developer/Xcode/Archives', kb: 9000, cleanable: false },
+    ],
+    browsers: [{ name: 'Chrome', path: '/h/Library/Caches/Google/Chrome', kb: 4000, running: false }],
+    appCaches: [{ baseId: 'com.foo', path: '/h/Library/Caches/app', kb: 1500, cleanable: true, running: false }],
+    special: [{ app: '微信', categories: [{ name: '缓存', kb: 100, cleanable: true, paths: ['/h/wx'] }] }],
+  }
+  const est = estimateOf(report)
+  assert.equal(est.devKb, 1000, 'cleanable=false dev caches must not count as releasable')
+  assert.equal(est.totalKb, 2000 + 1200 + 1000 + 4000 + 1500 + 100)
+  assert.equal(
+    est.totalKb,
+    est.safeKb + est.cacheKb + est.devKb + est.browserKb + est.appCacheKb + est.specialKb,
+    'totalKb must equal the sum of its parts (disk_report / AI summary / panel share one number)',
+  )
+})

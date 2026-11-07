@@ -8,8 +8,12 @@
 - 修复（软件页）：桌面来源为 `partial` 时，客户端把所有可读 App 也判为不可操作；现在与后端 `sourceFor()` 一致，可读 App 仍能预览卸载/移出
 - 修复（Windows 软件清单）：Appx 优先显示 Start 菜单名称（身份名保留在 `identityName`，搜索仍可命中）；语言/资源包（`IsResourcePackage`）按 `protected_system` 保护，Start 菜单查询失败只降级为来源警告
 - 修复（估算口径）：`estimate` 计入可清理的浏览器 / 应用缓存 / 聊天缓存，新增 `browserKb` / `appCacheKb` / `specialKb`，`totalKb` 与面板可勾选合计、`disk_report` 与 AI 摘要保持一致
+- 修复（估算口径，Markdown）：扫描器 Markdown「预计可释放」的「合计约」改用 `estimate.totalKb`（此前仍按 safe+cache+dev 三项求和，CLI / `disk_audit` 会少报浏览器、应用、聊天缓存；本机实测少报 1.36 GB），并补浏览器 / 应用 / 聊天缓存分项；旧报告缺 `totalKb` 时回退六项和（macOS 与 Windows 同步）
+- 修复（估算口径，开发缓存）：`cleanable=false` 的开发缓存（Xcode Archives / CoreSimulator / Docker vms 等）只展示、不计入 `estimate`，与清理允许集合和面板可勾选合计同口径（扫描器 `estimate_of` 与宿主 `estimateOf` 同步）
+- 安全（鉴权一致性）：`/api/update-check`、`/api/update` 也先问宿主 `connection.requestRejection`（此前仅校验自定义头 + 回环 Host，未登录本地进程可读版本信息并触发一次插件更新）；software/update/panel 三组路由统一经 `resolveConnection()` 解析 connection（模块级注入优先，其次 `webCtx.get('connection')`），消除注入时序造成的鉴权不对称
+- 修复（界面）：暗色主题下「更新插件」徽标改为深色底（`var(--dc-select)`），此前固定浅色底 + 暗色文字对比度仅 1.87:1、几乎不可读
 - 修复（软件空态）：所有来源都读取失败时显示明确告警与来源错误，而不是「没有匹配的软件」
-- 测试 329（macOS 326 pass / 3 skip；Windows 按 329 总数应为 320 pass / 9 skip，以 CI 实测为准），新增 Windows 清单编码执行、空位置去重、缺失 npm prefix、软件路由鉴权、partial 可操作、全来源失败、Start 菜单显示名与真实脚本、estimate 新字段回归
+- 测试 335（macOS 332 pass / 3 skip；Windows 按 335 总数应为 326 pass / 9 skip，以 CI 实测为准），新增 Windows 清单编码执行、空位置去重、缺失 npm prefix、软件路由鉴权、partial 可操作、全来源失败、Start 菜单显示名与真实脚本、estimate 新字段与 Markdown 合计/开发缓存过滤、update/software 路由 connection 鉴权与 webCtx 兜底、暗色更新徽标回归
 
 ## 0.14.0 — 2026-11-07
 - 软件页：清单从按哈希排序改为「可处理项在前、按名称排序；暂不能处理的收进折叠分区并按原因分组」（运行中 / 官方卸载器 / 依赖 / 归属冲突 / 受保护等，组头带计数），预览夹具补充运行中与官方卸载器示例

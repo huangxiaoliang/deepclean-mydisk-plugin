@@ -125,7 +125,12 @@ try:
             {"path": base + "/Library/Caches/CloudKit", "kb": 900, "system": True},
             {"path": base + "/Library/Caches/WithDev", "kb": 1200},  # 与 devCaches 重叠
         ],
-        "devCaches": [{"path": base + "/Library/Caches/WithDev", "kb": 1000}],
+        "devCaches": [
+            {"path": base + "/Library/Caches/WithDev", "kb": 1000},
+            # cleanable=False（Xcode Archives / CoreSimulator / Docker vms）：清理允许集合
+            # 与面板都会排除，估算必须同口径，否则「预计可释放」大于可勾选合计。
+            {"path": base + "/Library/Developer/Xcode/Archives", "kb": 9000, "cleanable": False},
+        ],
         "browsers": [{"name": "Chrome", "path": base + "/Library/Caches/Google/Chrome",
                       "kb": 4000, "running": False}],
         "appCaches": [{"baseId": "com.foo", "app": "Foo", "kb": 1500, "running": False,
@@ -153,6 +158,10 @@ try:
     check("estimate 计入可清理的聊天缓存", est.get("specialKb") == 100, repr(est))
     check("estimate totalKb 不含 confirmKb 且覆盖可清理缓存",
           est["totalKb"] == 20000 + 2000 + 1000 + 4000 + 1500 + 100, repr(est))
+    check("estimate devKb 排除 cleanable=False 的开发缓存", est["devKb"] == 1000, repr(est))
+    check("estimate totalKb == 六项和",
+          est["totalKb"] == est["safeKb"] + est["cacheKb"] + est["devKb"]
+          + est["browserKb"] + est["appCacheKb"] + est["specialKb"], repr(est))
 
     # 完整 quick 扫描（临时 HOME、只读）：报告必须带 minLeftoverKb / processSnapshot
     scan_home = tmp / "scan-home"
@@ -167,6 +176,30 @@ try:
           repr(full.get("processSnapshot")))
     check("报告 estimate 带 confirmKb", isinstance(full.get("estimate", {}).get("confirmKb"), int),
           repr(full.get("estimate")))
+
+    # §九「合计约」必须等于 estimate.totalKb（修复前按 safe+cache+dev 求和，会少报
+    # 浏览器 / 应用缓存 / 聊天缓存）；缺失 totalKb 时回退六项和。
+    est_render = {**full["estimate"], "safeKb": 20000, "cacheKb": 2000, "devKb": 1000,
+                  "browserKb": 4000, "appCacheKb": 1500, "specialKb": 1360000,
+                  "overlapKb": 500,
+                  "totalKb": 20000 + 2000 + 1000 + 4000 + 1500 + 1360000}
+    md_render = mac.render_md({**full, "estimate": est_render, "trashKb": 700}, ns_scan)
+    sec9 = md_render.split("## 九、预计可释放")[1].split("## 十、")[0]
+    total_line = next((ln for ln in sec9.splitlines() if ln.startswith("- 合计约：")), "")
+    check("Markdown §九 合计 == estimate.totalKb",
+          total_line == f"- 合计约：**{mac.human(est_render['totalKb'])}**（不含需确认项与废纸篓）",
+          f"{total_line!r} expect {mac.human(est_render['totalKb'])}"
+          f" (旧口径 {mac.human(23000)})")
+    check("Markdown §九 显示浏览器/应用/聊天缓存分项",
+          "- 浏览器缓存：" in sec9 and "- 应用缓存：" in sec9 and "- 聊天缓存：" in sec9, sec9)
+    check("Markdown §九 保留 overlap 与废纸篓行",
+          "已避免重复计算" in sec9 and "废纸篓" in sec9, sec9)
+    fallback_est = {k: v for k, v in est_render.items() if k != "totalKb"}
+    md_fb = mac.render_md({**full, "estimate": fallback_est}, ns_scan)
+    sec9_fb = md_fb.split("## 九、预计可释放")[1].split("## 十、")[0]
+    total_fb = next((ln for ln in sec9_fb.splitlines() if ln.startswith("- 合计约：")), "")
+    check("Markdown §九 缺 totalKb 时回退六项和",
+          mac.human(est_render["totalKb"]) in total_fb, f"{total_fb!r}")
 
     # 浏览器缓存：运行中的浏览器标 running（宿主会把它挡在清理允许集合外）
     bhome = tmp / "bhome"

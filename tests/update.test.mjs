@@ -21,7 +21,8 @@ const baseUrl = new URL('../lib/index.js', import.meta.url).href
 let sequence = 0
 
 // 每个用例都拿一个新的插件实例（唯一 query 绕过 ESM 缓存），更新检测缓存与注入的服务互不污染。
-async function freshPlugin(manager) {
+// `connection` 模拟宿主登录鉴权；`connectionViaWebCtx` 只经 webServer 作用域暴露（注入顺序回归用）。
+async function freshPlugin(manager, { connection, connectionViaWebCtx } = {}) {
   const plugin = await import(`${baseUrl}?update-case=${++sequence}`)
   const routes = []
   const tools = []
@@ -29,8 +30,14 @@ async function freshPlugin(manager) {
     tools: { register(tool) { tools.push(tool) } },
     effect() {},
     inject(deps, cb) {
-      if (deps.includes('webServer')) cb({ webServer: { register(r) { routes.push(r); return () => {} } } })
+      if (deps.includes('webServer')) {
+        cb({
+          webServer: { register(r) { routes.push(r); return () => {} } },
+          get: (name) => (name === 'connection' ? connectionViaWebCtx : undefined),
+        })
+      }
       if (deps.includes('pluginManager') && manager) cb({ pluginManager: manager })
+      if (deps.includes('connection') && connection) cb({ connection })
     },
   }
   plugin.apply(ctx)
@@ -254,4 +261,31 @@ test('update routes reject non-loopback hosts and cross-site requests', async ()
   assert.equal(badHost.code, 403)
   const crossSite = await call(routes, '/update-check', 'GET', undefined, { 'sec-fetch-site': 'cross-site' })
   assert.equal(crossSite.code, 403)
+})
+
+test('update routes follow the host connection rejection', async () => {
+  const manager = listedManager({ versions: [listed('0.14.0')] })
+  // 未登录：宿主 connection 直接 401，读更新状态与一键更新都必须被拒。
+  const { routes } = await freshPlugin(manager, { connection: { requestRejection: () => 401 } })
+  assert.equal((await call(routes, '/update-check')).code, 401)
+  const write = await call(routes, '/update', 'POST', JSON.stringify({ confirm: true }))
+  assert.equal(write.code, 401)
+  assert.equal(manager.calls.updateBundle, 0, 'an unauthenticated call must never reach updateBundle')
+})
+
+test('update routes fall back to the web server scope connection', async () => {
+  // 注入顺序不同时 connection 可能只经 webServer 作用域可见；update 路由不能因此退化成无鉴权。
+  const manager = listedManager({ versions: [listed('0.14.0')] })
+  const { routes } = await freshPlugin(manager, { connectionViaWebCtx: { requestRejection: () => 401 } })
+  assert.equal((await call(routes, '/update-check')).code, 401)
+  assert.equal((await call(routes, '/update', 'POST', JSON.stringify({ confirm: true }))).code, 401)
+})
+
+test('update routes keep local fences when the host connection accepts', async () => {
+  const manager = listedManager({ versions: [listed('0.14.0')] })
+  const { routes } = await freshPlugin(manager, { connection: { requestRejection: () => undefined } })
+  // 宿主鉴权放行不等于跳过本地围栏：缺自定义头 / 非回环 Host 仍必须被拒。
+  assert.equal((await call(routes, '/update-check', 'GET', undefined, { 'x-deepclean-ui': '' })).code, 403)
+  assert.equal((await call(routes, '/update-check', 'GET', undefined, { host: 'example.com' })).code, 403)
+  assert.equal((await call(routes, '/update-check')).code, 200)
 })

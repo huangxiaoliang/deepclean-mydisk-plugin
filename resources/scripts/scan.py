@@ -850,7 +850,8 @@ def estimate_of(r, min_leftover_mb):
     specific = _specific_paths(r)
     cache_map = {c["path"]: c["kb"] for c in r["caches"]
                  if not c.get("system") and not _overlaps_specific(c["path"], specific)}
-    dev_map = {d["path"]: d["kb"] for d in r["devCaches"]}
+    # 与清理允许集合 / 面板同口径：cleanable=False 的开发缓存只展示，不计入可释放。
+    dev_map = {d["path"]: d["kb"] for d in r["devCaches"] if d.get("cleanable", True)}
     overlap = sum(min(cache_map[p], dev_map[p]) for p in set(cache_map) & set(dev_map))
     cache = sum(cache_map.values()) - overlap
     dev = sum(dev_map.values())
@@ -980,13 +981,27 @@ def render_md(r, args):
 
     est = r.get("estimate") or estimate_of(r, args.min_leftover_mb)
     safe_kb, cache_kb, dev_kb = est["safeKb"], est["cacheKb"], est["devKb"]
-    overlap_kb = est["overlapKb"]
+    browser_kb = est.get("browserKb", 0)
+    app_cache_kb = est.get("appCacheKb", 0)
+    special_kb = est.get("specialKb", 0)
+    overlap_kb = est.get("overlapKb", 0)
+    # 合计以 estimate.totalKb 为准（与 JSON / 面板可勾选合计同源）；旧报告没有
+    # totalKb 时按六项分项回退，避免少报浏览器 / 应用缓存 / 聊天缓存。
+    total_kb = est.get("totalKb")
+    if total_kb is None:
+        total_kb = safe_kb + cache_kb + dev_kb + browser_kb + app_cache_kb + special_kb
     a("## 九、预计可释放")
     a("")
     a(f"- 推荐清理：**{human(safe_kb)}**")
     a(f"- 用户缓存（已去重）：**{human(cache_kb)}**（删除后会重新下载/重建）")
     a(f"- 开发缓存：**{human(dev_kb)}**（用到时重新下载）")
-    a(f"- 合计约：**{human(safe_kb + cache_kb + dev_kb)}**（不含需确认项与废纸篓）")
+    if browser_kb:
+        a(f"- 浏览器缓存：**{human(browser_kb)}**（删除后会重新缓存，不影响书签/密码）")
+    if app_cache_kb:
+        a(f"- 应用缓存：**{human(app_cache_kb)}**（删除后会重新生成）")
+    if special_kb:
+        a(f"- 聊天缓存：**{human(special_kb)}**（不会删除聊天记录）")
+    a(f"- 合计约：**{human(total_kb)}**（不含需确认项与废纸篓）")
     if overlap_kb:
         a(f"- 已避免重复计算：{human(overlap_kb)}（同时出现在缓存与开发缓存中）")
     if r["trashKb"]:

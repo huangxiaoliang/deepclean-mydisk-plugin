@@ -80,12 +80,22 @@ try:
     report = {"version": win.VERSION, "platform": "windows", "generatedAt": "x", "host": "h",
               "home": str(tmp), "access": {"admin": False, "detail": "普通用户"},
               "installedCount": 0, "disk": {"total": 1, "used": 1, "free": 1},
-              "caches": caches, "leftoverGroups": [], "devCaches": [], "cloudStorage": [],
+              "caches": caches, "leftoverGroups": [],
+              "devCaches": [
+                  {"path": str(tmp / "dev-clean"), "advice": "构建缓存，可再生", "kb": 1000,
+                   "cleanable": True},
+                  # cleanable=False：只展示，不进估算（与面板可勾选合计同口径）
+                  {"path": str(tmp / "dev-archives"), "advice": "归档，需确认", "kb": 9000,
+                   "cleanable": False},
+              ],
+              "cloudStorage": [],
               "browsers": [{"name": "Chrome", "path": "C:/chrome-cache", "kb": 50, "running": False}],
-              "appCaches": [],
+              "appCaches": [{"baseId": "Foo", "app": "Foo", "kb": 500, "running": False,
+                             "cleanable": True, "paths": [str(tmp / "app-cache")]}],
               "bigFiles": [], "truncated": False, "elapsed": 0.1, "scope": "x",
-              "estimate": {"safeKb": 0, "confirmKb": 0, "cacheKb": 100, "devKb": 0,
-                           "overlapKb": 0, "totalKb": 100}}
+              "estimate": {"safeKb": 0, "confirmKb": 0, "cacheKb": 100, "devKb": 1000,
+                           "browserKb": 50, "appCacheKb": 500, "specialKb": 0,
+                           "overlapKb": 0, "totalKb": 100 + 1000 + 50 + 500}}
     ns = argparse.Namespace(redact=False, quick=True, min_mb=300, min_leftover_mb=10)
     md = win.render(report, ns)
     sec1 = md.split("## 一、")[1].split("## 二、")[0]
@@ -95,6 +105,21 @@ try:
     sec7 = md.split("## 七、")[1].split("## 八、")[0]
     check("暂不可清理项列入不建议清理表", "Windows/Temp" in sec7 and "Local/Temp" in sec7, sec7[:300])
     check("预计可释放排除不可清理项", "**100K**" in md and "8.9M" not in md, md[-600:])
+
+    # §九「合计约」必须等于 estimate.totalKb；修复前按 safe+cache+dev 求和会少报
+    # 浏览器 / 应用缓存（旧口径 1.1M，totalKb 1.6M，两者可区分）。
+    sec9 = md.split("## 九、预计可释放")[1].split("## 十、")[0]
+    total_line = next((ln for ln in sec9.splitlines() if ln.startswith("- 合计约：")), "")
+    expected_total = win.human(report["estimate"]["totalKb"])
+    check("windows §九 合计 == estimate.totalKb",
+          total_line == f"- 合计约：**{expected_total}**（不含需确认项）",
+          f"{total_line!r} expect {expected_total!r} (旧口径 {win.human(1100)})")
+    check("windows §九 含浏览器/应用缓存分项",
+          "- 浏览器缓存：" in sec9 and "- 应用缓存：" in sec9, sec9)
+    fallback_est = {k: v for k, v in report["estimate"].items() if k != "totalKb"}
+    sec9_fb = win.render({**report, "estimate": fallback_est}, ns).split("## 九、预计可释放")[1].split("## 十、")[0]
+    total_fb = next((ln for ln in sec9_fb.splitlines() if ln.startswith("- 合计约：")), "")
+    check("windows §九 缺 totalKb 时回退六项和", expected_total in total_fb, f"{total_fb!r}")
     check("建议命令不含不可清理项", "Move-Item" not in md or "C:/ok-cache" in md.split("```powershell")[1])
     check("系统盘盘符缺省为 C:", "系统盘 C:" in md)
     report_d = {**report, "disk": {"total": 1, "used": 1, "free": 1, "drive": "D:"}}
@@ -344,7 +369,11 @@ try:
             {"path": wbase + "/Locked", "label": "缓存", "kb": 4000, "safe": True, "system": False,
              "admin": False, "cleanable": False, "advice": "运行中不可清"},
         ],
-        "devCaches": [{"path": wbase + "/WithDev", "advice": "x", "kb": 1000}],
+        "devCaches": [
+            {"path": wbase + "/WithDev", "advice": "x", "kb": 1000},
+            # cleanable=False：只展示，不进估算（与面板可勾选合计同口径）
+            {"path": wbase + "/DevArchives", "advice": "x", "kb": 9000, "cleanable": False},
+        ],
         "browsers": [{"name": "Chrome", "path": wbase + "/Google/Chrome", "kb": 4000, "running": False}],
         "appCaches": [{"baseId": "Foo", "app": "Foo", "kb": 1500, "running": False,
                        "cleanable": True, "paths": [wbase + "/Other/sub"]}],
@@ -365,6 +394,10 @@ try:
     check("windows estimate 计入可清理的应用缓存", west.get("appCacheKb") == 1500, repr(west))
     check("windows estimate totalKb 不含 confirmKb 且覆盖可清理缓存",
           west["totalKb"] == 20500 + 2000 + 1000 + 4000 + 1500, repr(west))
+    check("windows estimate devKb 排除 cleanable=False 的开发缓存", west["devKb"] == 1000, repr(west))
+    check("windows estimate totalKb == 六项和（Windows special 恒 0）",
+          west["totalKb"] == west["safeKb"] + west["cacheKb"] + west["devKb"]
+          + west["browserKb"] + west["appCacheKb"] + west["specialKb"], repr(west))
 
     # 完整合成扫描（OS 发现全部打桩，不触注册表/ctypes）：报告必须带 minLeftoverKb / processSnapshot
     saved_scan_env = {k: os.environ.get(k) for k in
