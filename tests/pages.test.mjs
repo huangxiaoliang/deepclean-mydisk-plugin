@@ -109,7 +109,7 @@ const mockOverview = {
     bigFiles: [{ path: '/tmp/big.bin', kb: 400000, ext: '.bin', mtime: 1700000000, atime: 1700000000, category: '工具数据' }],
   },
 }
-const mockPhotos = { scanned: 100, compared: 100, elapsed: 5, groups: [
+const mockPhotos = { generatedAt: Date.now(), scanned: 100, compared: 100, elapsed: 5, groups: [
   { id: 'g1', items: [{ path: '/tmp/p1/a.jpg', kb: 2000, mtime: 1 }, { path: '/tmp/p2/b.jpg', kb: 1500, mtime: 2 }], totalKb: 3500, wastedKb: 1500 },
 ] }
 
@@ -445,6 +445,16 @@ test('protected paths and read-only developer data never enter movable totals', 
   assert.ok(!html.includes('aria-label="选择 dev-b"'))
 })
 
+test('a whitelisted child path protects its cleanup ancestor row', () => {
+  const mutate = cases.find(([n]) => n === 'clean-junk')[1]
+  const report = { ...mockOverview.report, leftoverGroups: [], caches: [], browsers: [], special: [] }
+  for (const guarded of ['/tmp/dev-a/keep.db', '/tmp/../tmp/dev-a']) {
+    const html = renderWithData(mutate, 'zh', { ...mockOverview, whitelist: [guarded], report })
+    assert.match(html, /受保护/, `parent row must be protected by ${guarded}`)
+    assert.ok(!html.includes('aria-label="选择 dev-a"'), `protected parent must not be selectable (${guarded})`)
+  }
+})
+
 test('overlapping browser/developer caches are counted once', () => {
   const mutate = cases.find(([n]) => n === 'clean-junk')[1]
   const overview = { ...mockOverview, report: { ...mockOverview.report, leftoverGroups: [], special: [],
@@ -704,6 +714,17 @@ test('windows overview renders the quarantine term, not the trash term', () => {
   const en = renderWithData(mutate, 'en', overview)
   assert.match(en, /quarantine/, 'English Windows copy must say quarantine')
   assert.doesNotMatch(en, /Trash/, 'English Windows copy must not say Trash')
+})
+
+test('stale photo results cannot be cleaned from the photo page', () => {
+  const mutate = (s) => cases.find(([n]) => n === 'clean-photos')[1](s)
+    .replace('const [sel, setSel] = useState({});', "const [sel, setSel] = useState({ '/tmp/p2/b.jpg': true });")
+  const stale = { ...mockPhotos, generatedAt: Date.now() - 11 * 60 * 1000 }
+  const staleHtml = renderWithData(mutate, 'zh', mockOverview, stale)
+  assert.match(staleHtml, /照片扫描结果已超过 10 分钟/)
+  assert.match(staleHtml, /<button[^>]*disabled=""[^>]*>移到废纸篓<\/button>/, 'stale photo clean must be disabled')
+  const freshHtml = renderWithData(mutate, 'zh', mockOverview, mockPhotos)
+  assert.doesNotMatch(freshHtml, /照片扫描结果已超过 10 分钟/)
 })
 
 test('photos page handles Windows path separators', () => {

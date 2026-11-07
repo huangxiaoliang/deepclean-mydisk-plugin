@@ -143,11 +143,29 @@ function loadInstrumented(lang = 'zh') {
   globalThis.localStorage = { getItem: () => lang, setItem: () => {} }
   let def
   globalThis.window = { __ModuleLoader__: { load(d) { def = d } } }
-  eval(source.replace('exports.apply = apply;', 'exports.__test = { aiReportDigest, aiItemPrompt, aiReviewPrompt, aiInspectPrompt, aiFailurePrompt, aiHistoryPrompt, aiSoftwarePrompt, aiSoftwareRules, aiRules, aiEvidenceText, untrustedText, safeDisplayPath, aiEvidenceLines, buildRows };\nexports.apply = apply;'))
+  eval(source.replace('exports.apply = apply;', 'exports.__test = { aiReportDigest, aiItemPrompt, aiReviewPrompt, aiInspectPrompt, aiFailurePrompt, aiHistoryPrompt, aiSoftwarePrompt, aiSoftwareRules, aiRules, aiEvidenceText, untrustedText, safeDisplayPath, aiEvidenceLines, buildRows, photoDefaultSelection };\nexports.apply = apply;'))
   const mod = def.factory((id) => require(id))
   mod.apply({ slots: { inject(_n, cb) { cb() }, register() { return () => {} } } })
   return mod.__test
 }
+
+test('photo default selection follows the keep rule after a rescan', () => {
+  const { photoDefaultSelection } = loadInstrumented('zh')
+  const items = [
+    { path: '/p/largest.jpg', kb: 900, mtime: 1 },
+    { path: '/p/middle.jpg', kb: 500, mtime: 2 },
+    { path: '/p/newest.jpg', kb: 300, mtime: 3 },
+  ]
+  assert.deepEqual(photoDefaultSelection([{ items }], 'largest'), {
+    '/p/middle.jpg': true, '/p/newest.jpg': true,
+  })
+  assert.deepEqual(photoDefaultSelection([{ items }], 'newest'), {
+    '/p/largest.jpg': true, '/p/middle.jpg': true,
+  })
+  assert.deepEqual(photoDefaultSelection([{ items }], 'shallow'), {
+    '/p/middle.jpg': true, '/p/newest.jpg': true,
+  })
+})
 
 test('AI report digest carries risk totals, category totals and unlisted aggregates', () => {
   const { aiReportDigest } = loadInstrumented('zh')

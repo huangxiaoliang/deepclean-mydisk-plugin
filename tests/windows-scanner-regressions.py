@@ -170,6 +170,33 @@ try:
     check("InstallLocation 匹配中文名应用", win.dir_name_matches_installed("IQIYI Video", tokens))
     check("未安装目录不误判", not win.dir_name_matches_installed("SomeVendor", tokens))
 
+    # 在用 App 的厂商容器：DisplayName/InstallLocation 与目录名对不上时，
+    # Publisher 与厂商别名必须兜底，否则缓存子目录会进入推荐清理。
+    vendor_apps = {
+        "WPS Office (12.1.0.29158)": {
+            "display": "WPS Office (12.1.0.29158)",
+            "installLocation": None,
+            "publisher": "Kingsoft Corp.",
+        },
+        "腾讯电脑管家": {
+            "display": "腾讯电脑管家",
+            "installLocation": None,
+            "publisher": "Tencent Technology (Shenzhen) Company Limited",
+        },
+        "火绒终端安全管理系统安全终端": {
+            "display": "火绒终端安全管理系统安全终端",
+            "installLocation": None,
+            "publisher": "Beijing Huorong Network Technology Co., Ltd.",
+        },
+    }
+    vendor_tokens = win.installed_tokens(vendor_apps)
+    check("Publisher 匹配 Kingsoft 容器", win.dir_name_matches_installed("Kingsoft", vendor_tokens))
+    check("中文别名匹配 Tencent 容器", win.dir_name_matches_installed("Tencent", vendor_tokens))
+    check("Publisher 匹配 Huorong 容器", win.dir_name_matches_installed("Huorong", vendor_tokens))
+    check("厂商容器不会被误判为残留",
+          all(win.dir_name_matches_installed(name, vendor_tokens)
+              for name in ("Kingsoft", "Tencent", "Huorong")))
+
     # 浏览器多 profile 枚举：Default + Profile N + Firefox cache2
     local = tmp / "Local"
     for prof in ("Default", "Profile 2", "Crashpad"):

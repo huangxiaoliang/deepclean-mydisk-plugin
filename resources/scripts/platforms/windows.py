@@ -360,10 +360,27 @@ def _tokens(text):
     return out
 
 
+# 厂商容器名与 DisplayName/Publisher 的别名。中文系统的注册表 DisplayName 常见
+# 「WPS Office」「腾讯电脑管家」「火绒…」，而数据目录是 Kingsoft/Tencent/Huorong；
+# 只靠目录名与显示名互包含时会把在用 App 数据判成残留。
+VENDOR_CONTAINER_ALIASES = (
+    ("kingsoft", ("kingsoft", "wps", "金山")),
+    ("tencent", ("tencent", "腾讯")),
+    ("huorong", ("huorong", "火绒")),
+    ("sangfor", ("sangfor", "深信服")),
+    ("leagsoft", ("leagsoft", "联软")),
+)
+
+
 def installed_tokens(apps):
     tokens = set()
+    vendor_text = []
     for info in apps.values():
-        tokens |= _tokens(info.get("display"))
+        display = info.get("display") or ""
+        publisher = info.get("publisher") or ""
+        vendor_text.append(f"{display} {publisher}".lower())
+        tokens |= _tokens(display)
+        tokens |= _tokens(publisher)
         loc = info.get("installLocation")
         if loc:
             base = Path(str(loc)).name
@@ -371,6 +388,10 @@ def installed_tokens(apps):
             norm = _norm_name(base)
             if norm:
                 tokens.add(norm)
+    joined = " ".join(vendor_text)
+    for container, aliases in VENDOR_CONTAINER_ALIASES:
+        if any(alias in joined for alias in aliases):
+            tokens.add(container)
     return tokens
 
 

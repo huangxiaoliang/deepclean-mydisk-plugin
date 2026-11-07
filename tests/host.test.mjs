@@ -211,6 +211,14 @@ test('estimateOf mirrors the scanner口径 and skips cache parents hidden by spe
   assert.equal(est.totalKb, (20 + 100 + 90 + 280 + 7 + 3) * 1024)
 })
 
+test('photo paths enter the allow-set only while the photo result is fresh', () => {
+  const report = { caches: [], leftoverGroups: [], devCaches: [], browsers: [], appCaches: [], special: [] }
+  const stale = plugin.allowedPaths(report, { photoAllowed: new Set(['/tmp/old-photo.jpg']), photoFresh: false })
+  assert.ok(!stale.has('/tmp/old-photo.jpg'), 'a stale photo result must not authorize cleanup')
+  const fresh = plugin.allowedPaths(report, { photoAllowed: new Set(['/tmp/new-photo.jpg']), photoFresh: true })
+  assert.ok(fresh.has('/tmp/new-photo.jpg'), 'a fresh photo result stays cleanable')
+})
+
 test('allowedPaths drops cache parents the panel hides behind specific rows', () => {
   const google = path.join(root, 'Caches', 'Google')
   const chrome = path.join(google, 'Chrome')
@@ -231,9 +239,10 @@ test('move refuses without a fresh scan', async () => {
 })
 
 test('whitelist stores only absolute paths', async () => {
-  const put = await call('/whitelist', 'PUT', JSON.stringify({ paths: ['relative/path', path.join(root, 'abs')] }))
+  const messy = path.join(root, 'nested', '..', 'abs')
+  const put = await call('/whitelist', 'PUT', JSON.stringify({ paths: ['relative/path', messy] }))
   assert.equal(put.code, 200)
-  assert.deepEqual(put.body.paths, [path.join(root, 'abs')])
+  assert.deepEqual(put.body.paths, [path.join(root, 'abs')], 'dot segments are canonicalized before saving')
   const get = await call('/whitelist')
   assert.deepEqual(get.body.paths, [path.join(root, 'abs')])
   await call('/whitelist', 'PUT', JSON.stringify({ paths: [] }))
@@ -970,6 +979,26 @@ test('auditHints maps report rows to inspectable itemIds', () => {
   assert.equal(many.length, 30)
 })
 
+test('report summary treats a protected child as protecting its ancestor row', () => {
+  const file = path.join(process.env.DSH_HOME, 'deepclean-whitelist.json')
+  const previous = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, JSON.stringify({ paths: [path.join(root, 'cache', 'keep.db')] }))
+  try {
+    const report = {
+      platform: 'macos', generatedAt: '2026-01-01 10:00:00', disk: { total: 1, used: 1, free: 0 },
+      estimate: { safeKb: 1, cacheKb: 0, devKb: 0, totalKb: 1 },
+      leftoverGroups: [{ baseId: 'cache', name: 'Cache', bucket: 'safe', kb: 1, paths: [path.join(root, 'cache')] }],
+      caches: [], devCaches: [], browsers: [], appCaches: [], special: [], bigFiles: [],
+    }
+    const text = plugin.renderReportSummary(report, Date.now())
+    assert.match(text, /受保护（protected）：1 项/, 'the parent row must be summarized as protected')
+  } finally {
+    if (previous === null) fs.rmSync(file, { force: true })
+    else fs.writeFileSync(file, previous)
+  }
+})
+
 test('renderReportSummary describes the panel report with four tiers and ids', () => {
   const report = {
     platform: 'macos',
@@ -1156,7 +1185,26 @@ test('trimUndoneBatch removes restored entries so a retry can finish', () => {
   assert.deepEqual(plugin.trimUndoneBatch([], results), [])
 })
 
-test('state exposes lastBatchIds for split clean batches', async () => {
+test('state exposes only the latest cleanup group for split batches', async () => {
+  // 两次清理的批次会同时留在宿主撤销队列里；/state 只能暴露最近一次操作的组，
+  // 否则“撤销上次清理”会把更早的清理也恢复。这里直接验证队列剪枝函数。
+  assert.deepEqual(
+    plugin.pruneUndoGroup(['new-1', 'new-2', 'already-purged'], [
+      { batchId: 'old-1' }, { batchId: 'new-1' }, { batchId: 'new-2' },
+    ]),
+    ['new-1', 'new-2'],
+  )
+  assert.deepEqual(plugin.pruneUndoGroup(['gone'], []), [])
+  assert.deepEqual(
+    plugin.nextUndoGroup(['previous'], ['new-1'], [{ batchId: 'new-1' }]),
+    ['new-1'],
+    'a successful cleanup replaces the undo group',
+  )
+  assert.deepEqual(
+    plugin.nextUndoGroup(['previous'], [], []),
+    ['previous'],
+    'a cleanup that moved nothing keeps the previous undo group',
+  )
   const { code, body } = await call('/state')
   assert.equal(code, 200)
   assert.ok(Array.isArray(body.lastBatchIds))
