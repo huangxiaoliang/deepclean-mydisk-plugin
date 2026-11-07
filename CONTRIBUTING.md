@@ -75,7 +75,7 @@ node scripts/preview.mjs                                   # 隔离预览
 
 ## HTTP API
 
-原有磁盘路由挂在 `/dsh-deepclean` 下，依赖 DSH webServer 边界，请求体上限 1 MB。软件路由额外检查回环 Host、同源请求及会话令牌，写请求体上限 8 KB。软件路由契约见 [软件卸载实施契约](docs/design/software-uninstall.md)。下表列出磁盘路由。
+原有磁盘路由挂在 `/dsh-deepclean` 下，依赖 DSH webServer 边界，请求体上限 1 MB。软件路由额外检查回环 Host、同源请求及会话令牌，写请求体上限 8 KB。更新路由同样检查回环 Host 与同源请求，并要求 `X-Deepclean-UI: update` 头；更新请求体上限 4 KB。软件路由契约见 [软件卸载实施契约](docs/design/software-uninstall.md)。下表列出磁盘路由。
 
 **只读**
 
@@ -95,6 +95,7 @@ node scripts/preview.mjs                                   # 隔离预览
 | GET | `/api/history` | `{ scans, cleans }`；`cleans[].lastRestore` 记录最近一次恢复失败项数 |
 | GET | `/api/quarantine` | 隔离区/废纸篓里本插件批次的 `{ root, kb, files, batches, truncated, systemTrashKb }`（3 秒缓存） |
 | GET | `/api/report?cached=1` | 有缓存时返回 `{ report, at }`；**不带 `cached=1` 会启动扫描并返回 202** |
+| GET | `/api/update-check?refresh=1` | 插件更新检测：`{ supported, reason, updatable, updateAvailable, installedVersion, latestVersion, newestVersion?, checkedAt }`；走可选的 DSH `pluginManager` 服务，结果在宿主内存缓存 6 小时，`refresh=1` 强制重查 |
 
 **控制 / 写操作**
 
@@ -115,6 +116,7 @@ node scripts/preview.mjs                                   # 隔离预览
 | POST | `/api/reveal` | 在 Finder / 资源管理器中打开位置 |
 | POST | `/api/open-privacy-settings` | 仅 macOS：打开「完全磁盘访问」系统设置（`DEEPCLEAN_NO_OPEN=1` 时只返回成功，不真正打开） |
 | GET/PUT/POST | `/api/whitelist` | 读取或保存保护名单 |
+| POST | `/api/update` | `{ confirm: true }` 由 DSH 官方插件管理更新到最新兼容版本；返回 `{ ok, from, to, application, stage, restartRequired, errorCode }`；需要 `X-Deepclean-UI: update` 与 JSON 请求体 |
 
 **模型工具（只读，共 5 个）**：`disk_check_permissions`、`disk_audit`（支持 `quick` / `redact` / `platform`）、`disk_report`（只读面板最近一次报告，不触发扫描）、`disk_inspect`（检查**最近一次体检报告覆盖的**路径或面板 `itemId` 的事实：类型/大小/文件数/修改时间/报告分档/对应 App 是否仍安装；报告外路径 fail-closed，输出路径脱敏）、`disk_self_test`。
 

@@ -24,7 +24,9 @@ DeepClean MyDisk is a DSH plugin for macOS and Windows that audits disk usage wi
 
 **Read-only model tools.** Five tools are exposed: `disk_check_permissions`, `disk_audit`, `disk_report`, `disk_inspect`, and `disk_self_test`. `disk_audit` starts a scan; `disk_report` reads the latest panel report without scanning; `disk_inspect` checks one item by `itemId` or a covered path. None can clean, move, or delete.
 
-**Read-only AI assistance.** You can ask AI to explain a checkup, explain one cleanup item, review a selection before cleanup, identify a large file, diagnose a failure, or analyze history trends. The AI explains only; it cannot select, clean, move, or delete anything. Prompts contain only redacted data the panel already computed, and model output cannot change risk tiers or the allow-set.
+**Plugin updates.** When the panel opens it asks the official DSH plugin manager for a compatible newer version. If one exists, an **Update plugin** button appears next to the title; confirming it lets the DSH plugin manager update the package, and restarting DSH loads the new version. The check makes no extra outbound request of its own; `link:` development installs cannot be auto-updated, and Settings explains the current state.
+
+**Read-only AI assistance.** You can ask AI to explain a checkup, explain one cleanup item, review a selection before cleanup, identify a large file, diagnose a failure, analyze history trends, or explain why software cannot be uninstalled, what an uninstall plan means, and what an uninstall result was. The AI explains only; it cannot select, clean, move, uninstall, or delete anything. Prompts contain only redacted data the panel already computed, and model output cannot change risk tiers or the allow-set.
 
 ## Safety model
 
@@ -37,6 +39,7 @@ The allow-set is re-checked in the host. Protected paths always win, symbolic li
 - macOS: Full Disk Access plus `python3`; the scanner uses built-in tools such as `du`, `plutil`, and `sips`.
 - Windows: Python 3.9 or later (`py -3`, `python`, or `python3`), with PowerShell for photo decoding; some system directories need administrator rights.
 - DSH 0.2.x (>=0.2.1-rc.5, <0.3.0). Linux is unverified.
+- Plugin updates work only for registry installs; a `link:` development install never shows the header update button.
 
 ## Install
 
@@ -50,6 +53,7 @@ Add `--profile <name>` for a named profile. This installs the published npm pack
 
 ## Feedback and support
 
+- Settings → Feedback & contact lists the email address, WeChat ID, and GitHub repository, plus a Star button that opens the repository page (sign in to GitHub to star it).
 - Bugs and usage questions: open a [GitHub issue](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/issues/new/choose).
 - Security issues (deleting outside the allow-set, path escapes, failed restores, privacy leaks): do not open a public issue; email **coolway.me@gmail.com** with the version, reproduction and impact.
 - Before filing, restart DSH and include the plugin version, DSH version, OS, error code or failing stage, and redacted logs or screenshots. The audit log lives at `$DSH_HOME/deepclean-audit.log`.
