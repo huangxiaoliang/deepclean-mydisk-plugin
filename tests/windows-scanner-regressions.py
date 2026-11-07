@@ -314,8 +314,12 @@ try:
         check("空路径/空根安全返回 False",
               win.under_cloud("", [onedrive_root]) is False and win.under_cloud(None, None) is False)
         if os.name == "nt":
+            # 必须从已 resolve 的根构造子路径：mkdtemp 在 Windows 上可能返回带 8.3
+            # 短名（RUNNER~1）的路径，而 onedrive_root 是 resolve() 后的长名；混用两种
+            # 形式会让大小写用例因为路径本身不同而假失败。
             check("云盘路径大小写不同仍判为云盘",
-                  win.under_cloud(str(onedrive / "Sub").upper(), [onedrive_root.lower()]) is True)
+                  win.under_cloud(str(Path(onedrive_root) / "Sub").upper(),
+                                  [onedrive_root.lower()]) is True)
         else:
             print("SKIP  云盘路径大小写（POSIX 上 os.path.normcase 为恒等，大小写敏感）")
     finally:
