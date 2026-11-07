@@ -1,6 +1,6 @@
 # deepclean-mydisk 插件变更
 
-## 未发布
+## 0.14.1 — 2026-11-07
 - 修复（Windows 软件清单）：默认客户端执行策略是 Restricted，`software-windows.ps1` 以 `-File` 启动会被直接拒绝，导致软件页来源全部失败。改为与照片/缩略图一致的 `-EncodedCommand` 执行（不受脚本执行策略或 GPO 影响）
 - 修复（Windows 软件清单）：注册表项没有 `InstallLocation` 时位置都是空串，去重逻辑把第一个之后的 66 个程序全部当成同一安装丢掉（WPS Office、Node.js、VC++/.NET 运行时等）。现在只在位置已知时按安装位置去重
 - 修复（软件来源）：全局 npm prefix 目录尚未创建时 `npm list --global` 以 ENOENT 退出，被误报为来源失败；现在按「没有全局包」处理，不再显示错误来源
