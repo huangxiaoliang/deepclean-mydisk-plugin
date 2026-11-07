@@ -61,8 +61,8 @@ node scripts/preview.mjs                                   # 隔离预览
 
 ## 测试与 CI
 
-- `npm test`（`node --test`）当前 **206** 个用例（平台相关用例会跳过，实际数量与跳过项以 `npm test` 输出为准）；
-- 平台专用用例会跳过：macOS 跳过 2 个 Windows 专用 HTTP 用例（204 pass / 2 skip），Windows 跳过 7 个 macOS / 非 Windows 宿主专用用例（199 pass / 7 skip）；
+- `npm test`（`node --test`）当前 **340** 个用例（平台相关用例会跳过，实际数量与跳过项以 `npm test` 输出为准）；
+- 平台专用用例会跳过：macOS 跳过 3 个 Windows 专用用例（337 pass / 3 skip），Windows 跳过 9 个 macOS / 非 Windows 宿主专用用例（331 pass / 9 skip，以 Windows CI 实测为准）；
 - CI（[.github/workflows/tests.yml](.github/workflows/tests.yml)）在 macOS + Windows 上跑 Node 24 + Python 3.12，只执行 `npm test`；
 - [.github/workflows/windows-acceptance.yml](.github/workflows/windows-acceptance.yml) 额外在 windows-2022 / windows-2025 / windows-11-arm 上跑原生验收，详见 [docs/windows-ci.md](docs/windows-ci.md)；
 - 页面测试是 SSR 渲染（`renderToString`），不是浏览器 E2E；真实交互请用隔离预览人工验收。
@@ -123,6 +123,13 @@ node scripts/preview.mjs                                   # 隔离预览
 ## 独立项目与扫描器同步
 
 本目录是独立 Git 仓库，不依赖 `deepclean-mydisk` skill 仓库，也不依赖 `default-workspace`：扫描器内置于 `resources/`。其中 `scan.py` / `deepclean.py` / `platforms/` / `rules.json` 可选用 `scripts/sync-scanner.sh <skill-repo-path>` 从 skill 同步；`photos.py` / `tree.py` / `photos-windows.ps1` 为本插件独有，不要覆盖。
+
+## 贡献流程
+
+- 提交前请阅读 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)；
+- 从 fork 开分支提交 PR，模板会带上安全红线自查、验证命令与文档/契约同步清单；
+- 安全相关改动（清理、恢复、搬家、允许集合、鉴权、审计）必须在 PR 里逐项说明红线自查结果；
+- 不要提交 `report.md` / `report.json` / `acceptance-report/` / `__pycache__` 等产物。
 
 ## 发布
 

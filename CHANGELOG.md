@@ -1,5 +1,11 @@
 # deepclean-mydisk 插件变更
 
+## Unreleased
+
+- 仓库治理（隐私）：公开仓库历史中的 38 个提交，作者与提交者邮箱由公司邮箱改为 GitHub noreply（`huangxiaoliang@users.noreply.github.com`）；已 force push `main` 与受影响的 11 个 tag，提交内容、作者名、作者时间与提交标题均未改变，15 个 Release 已跟随新 tag
+- 文档（开源收尾）：README 顶部增加 CI / npm / License / 平台徽章；新增 `CODE_OF_CONDUCT.md`（Contributor Covenant 2.1 中文版）与 `.github/pull_request_template.md`（安全红线与验证清单）；`CONTRIBUTING.md` 补充贡献流程并把测试数字更新为 340
+- 文档（隐私）：`design-qa.md` 中 7 处本机绝对路径改为本地截图说明，不再暴露用户名与目录结构
+
 ## 0.14.2 — 2026-11-07
 - 修复（撤销作用域）：撤销入口只针对**最近一次清理操作**产生的批次组（分片清理的多个批次）；更早批次仍可从历史逐批恢复/释放，「撤销上次清理」不再把更早的清理一起恢复；本次清理未移动任何文件时保留上一次可撤销组，`/state` 只暴露仍存在于内存撤销队列的批次
 - 修复（照片清理新鲜度）：照片扫描开始即作废旧结果与旧允许集合，只有成功且结果仍在 10 分钟内的相似照片路径才能进入清理允许集合（`photoAllowedIsFresh`）；旧照片结果不能再借新鲜磁盘报告通过 `/api/clean`；照片页默认勾选在重新扫描后按保留规则重算，与宿主放行口径一致

@@ -1,5 +1,11 @@
 # deepclean-mydisk
 
+[![tests](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/actions/workflows/tests.yml)
+[![Windows acceptance](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/actions/workflows/windows-acceptance.yml/badge.svg?branch=main)](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/actions/workflows/windows-acceptance.yml)
+[![npm](https://img.shields.io/npm/v/deepclean-mydisk.svg)](https://www.npmjs.com/package/deepclean-mydisk)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey.svg)](#安装)
+
 DSH 插件：macOS / Windows 原生侧边栏磁盘工具。**扫描只读，清理只移动**——文件先移入废纸篓（macOS）或隔离区（Windows），可撤销；永久删除必须二次确认，且只限本插件移入的批次。提供实时容量、空间可视化、相似照片、跨盘移动、恢复中心，以及只读的 AI 体检解读、条目解释、清理前复核与失败诊断。
 
 DeepClean MyDisk is a DSH plugin for macOS and Windows. It audits disk usage read-only, then moves the files you select to the Trash or a quarantine folder with undo. Cleanup is two-stage: moving files does not free space until you permanently delete a batch after a second confirmation.
@@ -157,7 +163,7 @@ dsh plugin --profile <name> add link:/绝对路径/deepclean-mydisk-plugin
 
 ## 开发与测试
 
-开发环境、目录结构、常用命令、测试与 CI、HTTP API、隔离预览与扫描器同步见 [CONTRIBUTING.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/CONTRIBUTING.md)；Windows 验收见 [docs/windows-ci.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/docs/windows-ci.md) 与 [docs/windows-acceptance.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/docs/windows-acceptance.md)。
+开发环境、目录结构、常用命令、测试与 CI、HTTP API、隔离预览与扫描器同步见 [CONTRIBUTING.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/CONTRIBUTING.md)；Windows 验收见 [docs/windows-ci.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/docs/windows-ci.md) 与 [docs/windows-acceptance.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/docs/windows-acceptance.md)。参与贡献前请阅读 [CODE_OF_CONDUCT.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/CODE_OF_CONDUCT.md)，PR 会按 [.github/pull_request_template.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/.github/pull_request_template.md) 的清单自查。
 
 ## 许可证
 
