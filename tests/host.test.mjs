@@ -190,7 +190,10 @@ test('macOS distinguishes a scanner-reported permission denial from an unrelated
   const bin = fs.mkdtempSync(path.join(root, 'fda-test-'))
   const python = path.join(bin, 'python3')
   const oldPath = process.env.PATH
-  process.env.PATH = bin + path.delimiter + oldPath
+  // 只保留假解释器目录：POSIX 的 runScanner 会探测并优先使用「可用」的解释器，
+  // 若 PATH 里还有 CI 的 setup-python（python/python3），真实的它会被选中并跑通扫描，
+  // 这个用例就测不到「扫描器自报未授权」的分支了。
+  process.env.PATH = bin
   t.after(() => {
     process.env.PATH = oldPath
     fs.rmSync(bin, { recursive: true, force: true })
