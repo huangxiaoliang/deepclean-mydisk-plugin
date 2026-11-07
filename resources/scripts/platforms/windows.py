@@ -85,8 +85,11 @@ def should_split_leftover(name, apps, procs):
     """只对「未安装、未运行、非聊天类」的 confirm 残留拆缓存子目录。
 
     installed_apps() 取不到（空）时 fail-closed：宁可不拆，也不把在用应用数据默认勾选。
+    进程快照不可用（空集合）时同样 fail-closed：无法确认是否运行，就不拆。
     """
     if not apps:
+        return False
+    if not snapshot_available(procs):
         return False
     if is_chat_dir(name):
         return False
@@ -456,13 +459,25 @@ def parse_tasklist(text):
 
 
 def running_process_names():
-    """进程快照；失败返回空集合（按未运行处理，不阻断扫描）。"""
+    """进程快照；失败返回空集合。
+
+    调用方必须用 snapshot_available() 区分「tasklist 失败」与「真的没有进程」，
+    失败时按运行中/不可拆处理（fail-closed），不阻断扫描。
+    """
     try:
         out = subprocess.run(["tasklist", "/FO", "CSV", "/NH"], capture_output=True,
                              text=True, timeout=30, errors="replace").stdout
     except Exception:
         return set()
     return parse_tasklist(out)
+
+
+def snapshot_available(procs):
+    """进程快照是否可用：tasklist 成功时不可能返回空集合，空即视为不可用。"""
+    try:
+        return bool(procs)
+    except Exception:
+        return False
 
 
 BROWSER_EXE_HINTS = (("Chrome", "chrome.exe"), ("Edge", "msedge.exe"), ("Firefox", "firefox.exe"))
@@ -473,6 +488,14 @@ def browser_exe(name):
         if name.startswith(prefix):
             return exe
     return ""
+
+
+def browser_running(name, procs):
+    """浏览器缓存是否按运行中处理；快照不可用时一律运行中（宁可暂时不可清）。"""
+    if not snapshot_available(procs):
+        return True
+    exe = browser_exe(name)
+    return bool(exe) and exe in procs
 
 
 def browser_specs():
@@ -536,6 +559,33 @@ def cloud_roots():
     return sorted(roots)
 
 
+def under_cloud(path, roots):
+    """路径是否位于任一云盘根之下。
+
+    必须按目录边界（== root 或 root + os.sep 前缀）判断，裸 startswith 会把
+    `...\\OneDriveBackup` 误判为云盘；Windows 上还要 normcase，避免大小写不一致漏判。
+    """
+    try:
+        target = os.path.normcase(os.path.normpath(str(path)))
+    except Exception:
+        return False
+    if not target:
+        return False
+    for root in roots or []:
+        try:
+            base = os.path.normcase(os.path.normpath(str(root)))
+        except Exception:
+            continue
+        if not base:
+            continue
+        if target == base:
+            return True
+        prefix = base if base.endswith(os.sep) else base + os.sep
+        if target.startswith(prefix):
+            return True
+    return False
+
+
 def big_files(home, min_mb, cloud, top=15, deadline=None):
     """全盘大文件：先排序后取 top-N；超过时间预算即截断（与 size_of 同一约定）。"""
     skip_dirs = {"appdata", "node_modules", ".git", "$recycle.bin", "system volume information"}
@@ -548,7 +598,7 @@ def big_files(home, min_mb, cloud, top=15, deadline=None):
             break
         dirs[:] = [d for d in dirs if d.lower() not in skip_dirs
                    and not is_reparse(os.path.join(root, d))
-                   and not any(os.path.join(root, d).startswith(c) for c in cloud_resolved)]
+                   and not under_cloud(os.path.join(root, d), cloud_resolved)]
         for f in files:
             try:
                 p = os.path.join(root, f)
@@ -561,6 +611,78 @@ def big_files(home, min_mb, cloud, top=15, deadline=None):
                 continue
     rows.sort(key=lambda x: -x["bytes"])
     return rows[:top], truncated
+
+
+def _norm_path(p):
+    """路径归一化：去掉 . / .. 与重复分隔符，Windows 上再统一大小写；异常返回空串。"""
+    try:
+        return os.path.normcase(os.path.normpath(str(p)))
+    except Exception:
+        return ""
+
+
+def _path_within(child, parent):
+    """child 是否等于 parent 或位于 parent 之下（按目录边界，不做 realpath）。"""
+    c, p = _norm_path(child), _norm_path(parent)
+    if not c or not p:
+        return False
+    return c == p or c.startswith(p + os.sep)
+
+
+def _overlaps_specific(path, specific):
+    """通用缓存路径是否被更具体条目覆盖或包住（任一方向重叠即算，与客户端隐藏口径一致）。"""
+    return any(_path_within(path, s) or _path_within(s, path) for s in specific)
+
+
+def _specific_paths(report):
+    """更具体条目（UI 中优先展示、会隐藏其父级 caches 行）的路径集合。
+
+    来源与 lib/client.js buildRows 的 specific 一致：browsers / devCaches / appCaches /
+    special.categories / leftoverGroups（所有 bucket，含 safe 与 confirm）。
+    """
+    out = set()
+    for b in report.get("browsers") or []:
+        if b.get("path"):
+            out.add(b["path"])
+    for d in report.get("devCaches") or []:
+        if d.get("path"):
+            out.add(d["path"])
+    for a in report.get("appCaches") or []:
+        for p in a.get("paths") or []:
+            if p:
+                out.add(p)
+    for app in report.get("special") or []:
+        for cat in app.get("categories") or []:
+            for p in cat.get("paths") or []:
+                if p:
+                    out.add(p)
+    for g in report.get("leftoverGroups") or []:
+        for p in g.get("paths") or []:
+            if p:
+                out.add(p)
+    return out
+
+
+def estimate_of(r):
+    """与 macOS estimate_of 同契约的估算（已去重）。
+
+    cacheKb 只统计 UI 会展示的 caches 行：被 browsers/devCaches/appCaches/special/
+    leftoverGroups 覆盖或包住的父级缓存目录不计入（与客户端 buildRows 隐藏口径一致）。
+    safeKb 仍统计所有 safe 残留组（不额外加 minLeftoverKb 阈值，保持现有行为）。
+    """
+    specific = _specific_paths(r)
+    cache_map = {os.path.normcase(c["path"]): c["kb"] for c in r["caches"]
+                 if c["safe"] and not c["system"] and c.get("cleanable", True)
+                 and not _overlaps_specific(c["path"], specific)}
+    dev_map = {os.path.normcase(d["path"]): d["kb"] for d in r["devCaches"]}
+    overlap_kb = sum(min(cache_map[p], dev_map[p]) for p in set(cache_map) & set(dev_map))
+    cache_kb = sum(cache_map.values()) - overlap_kb
+    dev_kb = sum(dev_map.values())
+    safe_kb = sum(g["kb"] for g in r["leftoverGroups"] if g["bucket"] == "safe")
+    confirm_kb = sum(g["kb"] for g in r["leftoverGroups"] if g["bucket"] != "safe")
+    return {"safeKb": safe_kb, "confirmKb": confirm_kb,
+            "cacheKb": cache_kb, "devKb": dev_kb, "overlapKb": overlap_kb,
+            "totalKb": safe_kb + cache_kb + dev_kb}
 
 
 def scan(args):
@@ -585,6 +707,7 @@ def scan(args):
         "caches": [], "leftoverGroups": [], "devCaches": [], "cloudStorage": [],
         "browsers": [], "appCaches": [],
         "bigFiles": [], "trashKb": None, "bigFilesTop": args.top,
+        "processSnapshot": "unavailable",
         "scope": f"{local}、{roaming}、{programdata}、Temp、浏览器缓存、开发缓存、云盘、"
                  f"{home}（不含 AppData 的大文件）",
         "truncated": False,
@@ -626,6 +749,7 @@ def scan(args):
         r["devCaches"].append({**spec, "kb": kb // 1024})
 
     proc_names = running_process_names()
+    r["processSnapshot"] = "ok" if snapshot_available(proc_names) else "unavailable"
     for spec in browser_specs():
         if not fresh(spec["path"]):
             continue
@@ -633,7 +757,7 @@ def scan(args):
         kb, trunc = size_of(spec["path"], min(deadline, time.time() + 20))
         r["truncated"] |= trunc
         r["browsers"].append({**spec, "kb": kb // 1024,
-                              "running": bool(proc_names) and browser_exe(spec["name"]) in proc_names})
+                              "running": browser_running(spec["name"], proc_names)})
     r["browsers"].sort(key=lambda x: -x["kb"])
 
     # 已卸载 App 数据候选（LOCAL/ROAMING/PROGRAMDATA 顶层目录）。
@@ -652,7 +776,7 @@ def scan(args):
             low = name.lower()
             if low in skip or low.startswith("deepclean"):
                 continue
-            if any(str(d).startswith(c) for c in cloud):
+            if under_cloud(d, cloud):
                 continue
             if dir_name_matches_installed(name, tokens):
                 continue
@@ -701,19 +825,8 @@ def scan(args):
                          for b in big]
     r["devPaths"] = sorted(dev_paths)
     r["elapsed"] = round(time.time() - t0, 1)
-    # 与 macOS estimate_of 同契约：safe/confirm 按 leftoverGroups 分档，
-    # caches 与 devCaches 重叠（npm/pnpm/pip 两侧都列）按路径取 min 去重。
-    cache_map = {os.path.normcase(c["path"]): c["kb"] for c in r["caches"]
-                 if c["safe"] and not c["system"] and c.get("cleanable", True)}
-    dev_map = {os.path.normcase(d["path"]): d["kb"] for d in r["devCaches"]}
-    overlap_kb = sum(min(cache_map[p], dev_map[p]) for p in set(cache_map) & set(dev_map))
-    cache_kb = sum(cache_map.values()) - overlap_kb
-    dev_kb = sum(dev_map.values())
-    safe_kb = sum(g["kb"] for g in r["leftoverGroups"] if g["bucket"] == "safe")
-    confirm_kb = sum(g["kb"] for g in r["leftoverGroups"] if g["bucket"] != "safe")
-    r["estimate"] = {"safeKb": safe_kb, "confirmKb": confirm_kb,
-                     "cacheKb": cache_kb, "devKb": dev_kb, "overlapKb": overlap_kb,
-                     "totalKb": safe_kb + cache_kb + dev_kb}
+    r["minLeftoverKb"] = int(args.min_leftover_mb * 1024)
+    r["estimate"] = estimate_of(r)
     return r
 
 

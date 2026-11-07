@@ -113,3 +113,91 @@ test('a different manager environment cannot verify removal', async t => {
   await service.execute(plan.id, true); await service.wait()
   assert.equal(service.snapshot().jobs[0].error, 'verification_unavailable')
 })
+
+test('a blocked software scan records the reason instead of failing silently', async t => {
+  let blocked = true
+  const { service } = fixture(t, { blocked: () => blocked })
+  await assert.rejects(service.scan(), /busy/)
+  assert.equal(service.snapshot().scanning, false)
+  assert.equal(service.snapshot().scanError, 'busy')
+  blocked = false
+  await service.scan()
+  assert.equal(service.snapshot().scanError, '')
+})
+
+test('an oversized journal is trimmed instead of locking uninstall', async t => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dc-software-')))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const journalPath = path.join(dir, 'jobs.json')
+  fs.writeFileSync(journalPath, JSON.stringify(Array.from({ length: 1001 }, (_, i) => ({
+    id: 'job-' + i, item, status: 'completed', startedAt: 1000 + i, finishedAt: 2000 + i,
+  }))))
+  const service = createSoftwareService({ journalPath, discover: async () => ({ items: [structuredClone(item)], sources: [{ id: item.sourceId, status: 'ok' }] }), execute: async () => ({ code: 0 }) })
+  assert.equal(service.snapshot().journalError, false)
+  assert.equal(service.snapshot().jobs.length, 1000)
+  assert.equal(service.snapshot().jobs[0].id, 'job-1000', 'newest record is kept')
+})
+
+test('a corrupt journal is fail-closed and can be reset with a backup', async t => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dc-software-')))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const journalPath = path.join(dir, 'jobs.json')
+  fs.writeFileSync(journalPath, '{broken')
+  const service = createSoftwareService({ journalPath, discover: async () => ({ items: [structuredClone(item)], sources: [{ id: item.sourceId, status: 'ok' }] }), execute: async () => ({ code: 0 }) })
+  assert.equal(service.snapshot().journalError, true)
+  await service.scan()
+  const blockedPlan = await service.plan(item.id)
+  await assert.rejects(service.execute(blockedPlan.id, true), /journal_unavailable/)
+  const state = service.resetJournal()
+  assert.equal(state.journalError, false)
+  assert.equal(state.jobs.length, 0)
+  assert.equal(fs.readdirSync(dir).filter(name => name.includes('.corrupt-')).length, 1)
+  await service.scan()
+  const plan = await service.plan(item.id)
+  await service.execute(plan.id, true)
+  await service.wait()
+  assert.equal(service.snapshot().journalError, false)
+})
+
+test('resetting a healthy journal is refused', async t => {
+  const { service } = fixture(t)
+  assert.throws(() => service.resetJournal(), /journal_ok/)
+})
+
+test('preflight failures are failed with their reason, not left unverified', async t => {
+  const { service } = fixture(t, { execute: async () => { throw Object.assign(new Error('installation_changed'), { code: 'installation_changed', preflight: true }) } })
+  await service.scan()
+  const plan = await service.plan(item.id)
+  await service.execute(plan.id, true)
+  await service.wait()
+  const job = service.snapshot().jobs[0]
+  assert.equal(job.status, 'failed')
+  assert.equal(job.error, 'installation_changed')
+})
+
+test('a failure after the uninstaller started still needs verification', async t => {
+  const { service } = fixture(t, { execute: async (_target, recordProcess) => { recordProcess(424242); throw Object.assign(new Error('boom'), { code: 'EACCES' }) } })
+  await service.scan()
+  const plan = await service.plan(item.id)
+  await service.execute(plan.id, true)
+  await service.wait()
+  const job = service.snapshot().jobs[0]
+  assert.equal(job.status, 'unknown')
+  assert.equal(job.error, 'EACCES')
+})
+
+test('a partially readable desktop source still allows its readable apps', async t => {
+  const app = { ...structuredClone(item), id: 'desktop:demo', sourceId: 'desktop', provider: 'macOS', kind: 'desktop', action: 'move-app', location: '/Applications/Demo.app' }
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dc-software-')))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const service = createSoftwareService({ journalPath: path.join(dir, 'jobs.json'), discover: async () => ({ items: [app], sources: [{ id: 'desktop', status: 'partial', error: 'desktop_partial' }] }), execute: async () => ({ code: 0 }) })
+  await service.scan()
+  const plan = await service.plan(app.id)
+  assert.ok(plan.id)
+})
+
+test('a partially readable manager source stays atomic', async t => {
+  const { service } = fixture(t, { discover: async () => ({ items: [structuredClone(item)], sources: [{ id: item.sourceId, status: 'partial' }] }) })
+  await service.scan()
+  await assert.rejects(service.plan(item.id), /source_unavailable/)
+})

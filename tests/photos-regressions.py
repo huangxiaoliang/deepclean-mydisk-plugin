@@ -81,6 +81,19 @@ class PhotoTests(unittest.TestCase):
             self.assertGreaterEqual(stats['package'], 1)
             self.assertGreaterEqual(stats['cloud'], 1)
 
+    def test_exif_swapped_bitmap_dimensions_are_normalized(self):
+        # EXIF Orientation 5/6/7/8 时 sips 输出 8 宽 x 9 高；dhash 必须先转置再取 8x9。
+        normal = [[y * 9 + x for x in range(9)] for y in range(8)]
+        self.assertEqual(photos.normalize_gray(normal), normal)
+        swapped = [[y * 8 + x for x in range(8)] for y in range(9)]
+        fixed = photos.normalize_gray(swapped)
+        self.assertEqual((len(fixed), len(fixed[0])), (8, 9))
+        self.assertEqual(fixed, [list(row) for row in zip(*swapped)])
+        with self.assertRaises(ValueError):
+            photos.normalize_gray([[0] * 8 for _ in range(8)])
+        with self.assertRaises(ValueError):
+            photos.normalize_gray([])
+
     @unittest.skipUnless(sys.platform == 'win32' or shutil.which('sips'), 'requires native Windows or macOS decoder')
     def test_native_identical_images_and_thumbnail_are_read_only(self):
         with tempfile.TemporaryDirectory() as td:

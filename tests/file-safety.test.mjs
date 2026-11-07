@@ -99,6 +99,30 @@ test('cross-device move supports filesystems without hard links', async t => {
   assert.ok(!fs.readdirSync(root).some(name=>name.startsWith('.deepclean-')))
 })
 
+test('cross-device move preserves source atime/mtime', async t => {
+  const root=fixture(t),source=path.join(root,'source'),target=path.join(root,'target')
+  fs.writeFileSync(source,'SOURCE')
+  const old=new Date('2020-01-01T00:00:00.000Z')
+  fs.utimesSync(source,old,old)
+  await moveAcrossDevices(source,target)
+  assert.equal(fs.existsSync(source),false)
+  const st=fs.statSync(target)
+  assert.ok(Math.abs(st.mtimeMs-old.getTime())<=1000,`target mtime not preserved: ${st.mtimeMs}`)
+  assert.ok(Math.abs(st.atimeMs-old.getTime())<=1000,`target atime not preserved: ${st.atimeMs}`)
+  assert.equal(fs.readFileSync(target,'utf8'),'SOURCE')
+})
+
+test('utimes failure cannot fail a hash-verified cross-device move', async t => {
+  const root=fixture(t),source=path.join(root,'source'),target=path.join(root,'target')
+  fs.writeFileSync(source,'SOURCE')
+  const utimes=fs.utimesSync
+  fs.utimesSync=()=>{throw Object.assign(new Error('utimes blocked'),{code:'EPERM'})}
+  try { await moveAcrossDevices(source,target) } finally { fs.utimesSync=utimes }
+  assert.equal(fs.readFileSync(target,'utf8'),'SOURCE')
+  assert.equal(fs.existsSync(source),false)
+  assert.ok(!fs.readdirSync(root).some(name=>name.startsWith('.deepclean-')))
+})
+
 test('destination created during verification is not overwritten', async t => {
   const root=fixture(t),source=path.join(root,'source'),target=path.join(root,'target')
   fs.writeFileSync(source,'SOURCE')

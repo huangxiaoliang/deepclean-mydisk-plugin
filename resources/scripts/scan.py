@@ -4,10 +4,12 @@
 硬约束：只读。不删除、不移动、不修改任何文件；删除建议只生成命令文本。
 """
 import argparse
+import glob
 import heapq
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -59,15 +61,27 @@ def load_rules():
     return rules
 
 
-def sh(cmd, timeout=120):
+def run_cmd(argv, timeout=120):
+    """只以 argv 形式执行外部命令：路径一律作为独立参数传递，绝不拼接 shell 字符串。
+
+    容器/缓存目录名属于不可信数据（例如微信收到的文件夹名可以包含 $()、反引号、
+    引号），一旦拼进 `sh -c` 就会被执行。这里统一用 argv + shell=False。
+    """
     try:
-        return subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout).stdout
+        return subprocess.run(argv, capture_output=True, text=True, timeout=timeout).stdout
     except Exception:
         return ""
 
 
 def du_map(pattern, timeout=180):
-    out = sh(f'du -sk {pattern} 2>/dev/null', timeout=timeout)
+    """统计 glob 命中的路径；glob 与 du 全部以 argv 传参，避免 shell 注入。"""
+    try:
+        paths = sorted(glob.glob(pattern))
+    except Exception:
+        paths = []
+    if not paths:
+        return {}
+    out = run_cmd(["du", "-sk", *paths], timeout=timeout)
     m = {}
     for line in out.splitlines():
         parts = line.split("\t", 1)
@@ -81,7 +95,7 @@ def du_map(pattern, timeout=180):
 
 
 def du_one(path, timeout=120):
-    out = sh(f'du -sk "{path}" 2>/dev/null', timeout=timeout)
+    out = run_cmd(["du", "-sk", str(path)], timeout=timeout)
     try:
         return int(out.split("\t", 1)[0])
     except Exception:
@@ -116,7 +130,7 @@ def one_line_cell(value, max_len=200):
 def plist_raw(path, key):
     if not os.path.exists(path):
         return None
-    out = sh(f'plutil -extract "{key}" raw -o - "{path}" 2>/dev/null', timeout=10).strip()
+    out = run_cmd(["plutil", "-extract", key, "raw", "-o", "-", str(path)], timeout=10).strip()
     return out or None
 
 
@@ -136,7 +150,7 @@ def installed_apps(home):
     """返回 {bundleId: {"path":..., "name":...}}（plutil 并行，约 0.5s）"""
     roots = [home / "Applications", Path("/Applications"), Path("/Applications/Utilities"),
              Path("/System/Applications"), Path("/System/Applications/Utilities")]
-    roots += [Path(p) / "Applications" for p in sh('ls -d /Volumes/* 2>/dev/null', timeout=10).split()]
+    roots += [Path(p) / "Applications" for p in glob.glob("/Volumes/*")]
     apps, seen = [], set()
     for root in roots:
         try:
@@ -338,7 +352,30 @@ def permission_line(status, detail):
 
 def process_snapshot():
     """一次抓取全部进程命令行，避免每个 bundle id 反复 pgrep（几十倍提速）。"""
-    return sh("pgrep -fl . 2>/dev/null", timeout=15).lower()
+    return run_cmd(["pgrep", "-fl", "."], timeout=15).lower()
+
+
+def snapshot_available(procs):
+    """进程快照是否可用：`pgrep -fl .` 正常时至少能列出 init/自身，空输出即视为不可用。
+
+    快照不可用时必须 fail-closed：宁可把浏览器/App 缓存误判成运行中，也不能默认放行清理。
+    """
+    return bool(str(procs or "").strip())
+
+
+def app_cache_running(app, base_id, procs):
+    """已安装 App 缓存是否按「运行中」处理（快照不可用时一律运行中）。"""
+    if not snapshot_available(procs):
+        return True
+    low = str(procs).lower()
+    return str(app or "").lower() in low or str(base_id or "").lower() in low
+
+
+def leftover_split_enabled(container, procs):
+    """卸载残留容器是否允许拆出缓存子目录；进程快照不可用时 fail-closed，不拆。"""
+    if not snapshot_available(procs):
+        return False
+    return not any(str(b).lower() in procs for b in (container["bundleId"], container["baseId"]))
 
 
 def dev_sizes(home, rules):
@@ -400,8 +437,25 @@ def browser_caches(home, procs=""):
         if kb:
             hint = BROWSER_PROC_HINTS.get(name, "")
             out.append({"name": name, "path": str(path), "kb": kb,
-                        "running": bool(procs) and bool(hint) and hint in procs})
+                        # 快照不可用时无法确认，统一按运行中处理（宁可暂时不可清）。
+                        "running": (not snapshot_available(procs))
+                        or (bool(hint) and hint in procs)})
     return out
+
+
+def _find_keyword_dirs(base, keywords, limit=80):
+    """find 关键字目录：全部以 argv 传参，输出在 Python 侧截断。
+
+    旧实现把 base 拼进 `find ... | head -80` shell 字符串，容器内不可信目录名里的
+    `$()`/反引号会被执行；这里同时去掉 `| head`，避免 find 因 SIGPIPE 静默丢结果。
+    """
+    argv = ["find", str(base), "-maxdepth", "8", "-type", "d", "("]
+    for index, keyword in enumerate(keywords):
+        if index:
+            argv.append("-o")
+        argv.extend(["-iname", keyword])
+    argv.extend([")", "-not", "-path", "*/WebKit/*", "-not", "-path", "*/.Trash/*"])
+    return [p for p in run_cmd(argv, timeout=120).splitlines() if p][:limit]
 
 
 def special_clean(home):
@@ -415,18 +469,16 @@ def special_clean(home):
                 "voice", "voices", "audio", "file", "files", "emoji", "emojis",
                 "sticker", "stickers", "attach", "attachment", "attachments",
                 "download", "downloads"]
-    pattern = " -o ".join(f"-iname '{k}'" for k in keywords)
     out = []
     for app, base in apps:
         if not base.is_dir():
             continue
-        cmd = (f'find "{base}" -maxdepth 8 -type d \\( {pattern} \\) '
-               f'-not -path "*/WebKit/*" -not -path "*/.Trash/*" 2>/dev/null | head -80')
-        paths = [p for p in sh(cmd, timeout=120).splitlines() if p]
+        paths = _find_keyword_dirs(base, keywords, limit=80)
         rows = []
         for p in paths:
             kb = du_one(Path(p), timeout=60)
-            if kb < 1024:
+            # du 可能失败（扫描期间被删、权限变化、路径不可读）：None 不能参与比较。
+            if kb is None or kb < 1024:
                 continue
             name = os.path.basename(p).lower()
             low = p.lower()
@@ -550,7 +602,8 @@ def scan(args):
     home = Path(args.home).expanduser().resolve() if args.home else Path.home()
     rules = load_rules()
     r = {"version": VERSION, "platform": "macos", "generatedAt": time.strftime("%Y-%m-%d %H:%M:%S"),
-         "host": os.uname().nodename, "home": str(home)}
+         "host": os.uname().nodename, "home": str(home),
+         "processSnapshot": "unavailable"}
 
     try:
         st = os.statvfs("/System/Volumes/Data")
@@ -566,10 +619,10 @@ def scan(args):
     r["disk"] = {"total": total, "used": used, "free": free, "homeKb": None}
 
     with ThreadPoolExecutor(max_workers=7) as ex:
-        f_cont = ex.submit(du_map, f'"{home}/Library/Containers"/*', 240)
-        f_cache = ex.submit(du_map, f'"{home}/Library/Caches"/*', 180)
-        f_dotcache = ex.submit(du_map, f'"{home}/.cache"/*', 120)
-        f_cloud = ex.submit(du_map, f'"{home}/Library/CloudStorage"/*', 60) if not args.no_cloud else None
+        f_cont = ex.submit(du_map, str(home / "Library" / "Containers") + "/*", 240)
+        f_cache = ex.submit(du_map, str(home / "Library" / "Caches") + "/*", 180)
+        f_dotcache = ex.submit(du_map, str(home / ".cache") + "/*", 120)
+        f_cloud = ex.submit(du_map, str(home / "Library" / "CloudStorage") + "/*", 60) if not args.no_cloud else None
         f_dev = ex.submit(dev_sizes, home, rules)
         f_apps = ex.submit(installed_apps, home)
         f_home = ex.submit(du_one, home, 300) if args.home_total else None
@@ -629,6 +682,7 @@ def scan(args):
         for p in cache_subdirs(c["path"]):
             cache_candidates.append((c, p))
     procs = process_snapshot()
+    r["processSnapshot"] = "ok" if snapshot_available(procs) else "unavailable"
     app_caches = []
     if cache_candidates:
         _progress(80, "扫描应用缓存")
@@ -648,7 +702,7 @@ def scan(args):
             g["kb"] += kb
             g["paths"].append(p)
         for g in by_app.values():
-            g["running"] = g["app"].lower() in procs or g["baseId"].lower() in procs
+            g["running"] = app_cache_running(g["app"], g["baseId"], procs)
             g["cleanable"] = not g["running"]
             g["count"] = len(g["paths"])
             if g["kb"] >= 1024:
@@ -666,7 +720,7 @@ def scan(args):
         low = c["baseId"].lower()
         if low.startswith("com.apple.") or any(low.startswith(p) for p in chat_prefixes):
             continue
-        if any(str(b).lower() in procs for b in (c["bundleId"], c["baseId"])):
+        if not leftover_split_enabled(c, procs):
             continue
         for p in cache_subdirs(c["path"], deadline=split_deadline):
             split_candidates.append((c, p))
@@ -729,20 +783,79 @@ def scan(args):
     r["bigFilesTop"] = args.top
     _progress(100, "完成")
     r["elapsed"] = round(time.time() - t0, 1)
+    r["minLeftoverKb"] = int(args.min_leftover_mb * 1024)
     r["estimate"] = estimate_of(r, args.min_leftover_mb)
     return r
 
 
+def _norm_path(p):
+    """路径归一化：去掉 . / .. 与重复分隔符，Windows 上再统一大小写；异常返回空串。"""
+    try:
+        return os.path.normcase(os.path.normpath(str(p)))
+    except Exception:
+        return ""
+
+
+def _path_within(child, parent):
+    """child 是否等于 parent 或位于 parent 之下（按目录边界，不做 realpath）。"""
+    c, p = _norm_path(child), _norm_path(parent)
+    if not c or not p:
+        return False
+    return c == p or c.startswith(p + os.sep)
+
+
+def _overlaps_specific(path, specific):
+    """通用缓存路径是否被更具体条目覆盖或包住（任一方向重叠即算，与客户端隐藏口径一致）。"""
+    return any(_path_within(path, s) or _path_within(s, path) for s in specific)
+
+
+def _specific_paths(report):
+    """更具体条目（UI 中优先展示、会隐藏其父级 caches 行）的路径集合。
+
+    来源与 lib/client.js buildRows 的 specific 一致：browsers / devCaches / appCaches /
+    special.categories / leftoverGroups（所有 bucket，含 safe 与 confirm）。
+    """
+    out = set()
+    for b in report.get("browsers") or []:
+        if b.get("path"):
+            out.add(b["path"])
+    for d in report.get("devCaches") or []:
+        if d.get("path"):
+            out.add(d["path"])
+    for a in report.get("appCaches") or []:
+        for p in a.get("paths") or []:
+            if p:
+                out.add(p)
+    for app in report.get("special") or []:
+        for cat in app.get("categories") or []:
+            for p in cat.get("paths") or []:
+                if p:
+                    out.add(p)
+    for g in report.get("leftoverGroups") or []:
+        for p in g.get("paths") or []:
+            if p:
+                out.add(p)
+    return out
+
+
 def estimate_of(r, min_leftover_mb):
-    """统一估算，供 Markdown 与 JSON 共用（已去重）。"""
+    """统一估算，供 Markdown 与 JSON 共用（已去重）。
+
+    cacheKb 只统计 UI 会展示的 caches 行：被 browsers/devCaches/appCaches/special/
+    leftoverGroups 覆盖或包住的父级缓存目录不计入（与客户端 buildRows 隐藏口径一致）。
+    minLeftoverKb 语义见报告同名字段；safe 阈值仍用传入的 min_leftover_mb。
+    """
     safe = sum(g["kb"] for g in r["leftoverGroups"]
                if g["bucket"] == "safe" and g["kb"] >= min_leftover_mb * 1024)
-    cache_map = {c["path"]: c["kb"] for c in r["caches"] if not c.get("system")}
+    specific = _specific_paths(r)
+    cache_map = {c["path"]: c["kb"] for c in r["caches"]
+                 if not c.get("system") and not _overlaps_specific(c["path"], specific)}
     dev_map = {d["path"]: d["kb"] for d in r["devCaches"]}
     overlap = sum(min(cache_map[p], dev_map[p]) for p in set(cache_map) & set(dev_map))
     cache = sum(cache_map.values()) - overlap
     dev = sum(dev_map.values())
-    return {"safeKb": safe, "cacheKb": cache, "devKb": dev,
+    confirm = sum(g["kb"] for g in r["leftoverGroups"] if g["bucket"] == "confirm")
+    return {"safeKb": safe, "confirmKb": confirm, "cacheKb": cache, "devKb": dev,
             "overlapKb": overlap, "totalKb": safe + cache + dev}
 
 
@@ -885,7 +998,7 @@ def render_md(r, args):
         if g["bucket"] != "safe" or g["kb"] < th["commandMinMb"] * 1024:
             continue
         for p in g["paths"][:3]:
-            a(f'mv -n "{p}" ~/.Trash/')
+            a(f'mv -n {shlex.quote(str(p))} ~/.Trash/')
             emitted += 1
     if emitted == 0:
         a("# 本次推荐清理项均小于 100 MB，未生成 mv；如需清理请逐项确认")

@@ -39,3 +39,19 @@ test('WinGet portable is bound to a product code and scope, while generic EXEs u
   assert.deepEqual(portable.command?.args, ['uninstall', '--product-code', 'Demo.Tool_Source', '--exact', '--scope', 'user', '--preserve', '--disable-interactivity'])
   assert.equal(result.items.find(x => x.name === 'Demo App').executable, false)
 })
+
+test('one unreadable app is a warning, a broken app root is a partial source', async () => {
+  const app = { key: 'com.demo.one', name: 'Demo', version: '1.0', location: '/Applications/Demo.app', bundleId: 'com.demo.one', blockReason: '', action: 'move-app' }
+  const run = data => async () => JSON.stringify(data)
+  const warned = await discoverSoftware({ platform: 'darwin', managers: [], run: run({ items: [app], errors: ['unreadable_app'] }) })
+  const warnedDesktop = warned.sources.find(source => source.id === 'desktop')
+  assert.equal(warnedDesktop.status, 'ok')
+  assert.equal(warnedDesktop.warning, 'desktop_partial')
+  assert.equal(warnedDesktop.unreadable, 1)
+  assert.equal(warned.items.length, 1)
+
+  const partial = await discoverSoftware({ platform: 'darwin', managers: [], run: run({ items: [app], errors: ['symlink_root'] }) })
+  const partialDesktop = partial.sources.find(source => source.id === 'desktop')
+  assert.equal(partialDesktop.status, 'partial')
+  assert.equal(partialDesktop.error, 'desktop_partial')
+})

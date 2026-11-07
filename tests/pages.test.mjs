@@ -24,6 +24,16 @@ function renderView(mutate, lang = 'zh') {
   return renderToString(require('react').createElement(Panel))
 }
 
+const UPDATE_AVAILABLE = '{ supported: true, updatable: true, updateAvailable: true, installedVersion: "0.13.1", latestVersion: "0.14.0", reason: "", checkedAt: 1700000000000 }'
+
+// 更新状态由 useEffect 拉取；SSR 不执行副作用，所以用源码替换把夹具塞进 useState 初值。
+function withUpdate(head) {
+  return (s) => {
+    let out = s.replace('const [updateInfo, setUpdateInfo] = useState(null);', `const [updateInfo, setUpdateInfo] = useState(${UPDATE_AVAILABLE});`)
+    return head ? head(out) : out
+  }
+}
+
 const cases = [
   ['home', (s) => s],
   ['space-tree', (s) => s.replace('useState("home")', 'useState("space")')],
@@ -31,8 +41,22 @@ const cases = [
   ['clean-junk', (s) => s.replace('useState("home")', 'useState("clean")')],
   ['clean-photos', (s) => s.replace('useState("home")', 'useState("clean")').replace('useState("junk")', 'useState("photos")')],
   ['software', (s) => s.replace('useState("home")', 'useState("software")')],
+  ['software-journal-error', (s) => s.replace('useState("home")', 'useState("software")').replace('useState({ items: [], sources: [], jobs: [] })', 'useState({ items: [], sources: [], jobs: [], journalError: true })')],
+  ['software-source-warning', (s) => s.replace('useState("home")', 'useState("software")').replace('useState({ items: [], sources: [], jobs: [] })', 'useState({ items: [], sources: [{ id: "desktop", name: "macOS", location: "", status: "ok", warning: "desktop_partial" }], jobs: [] })')],
+  ['software-grouped', (s) => s.replace('useState("home")', 'useState("software")').replace('useState({ items: [], sources: [], jobs: [] })', 'useState({ at: 1, sources: [{ id: "desktop", name: "macOS", location: "", status: "ok" }], jobs: [], items: [' +
+    '{ id: "zeta", sourceId: "desktop", provider: "macOS", name: "Zeta App", version: "1", kind: "desktop", location: "/Applications/Zeta.app", executable: true, warnings: [] },' +
+    '{ id: "alpha", sourceId: "desktop", provider: "macOS", name: "Alpha App", version: "1", kind: "desktop", location: "/Applications/Alpha.app", executable: true, warnings: [] },' +
+    '{ id: "run", sourceId: "desktop", provider: "macOS", name: "Running App", version: "1", kind: "desktop", location: "/Applications/Running.app", executable: false, blockReason: "application_running", warnings: [] },' +
+    '{ id: "prot", sourceId: "desktop", provider: "macOS", name: "Protected App", version: "1", kind: "desktop", location: "/System/Applications/Protected.app", executable: false, blockReason: "protected_system", warnings: [] }' +
+  '] })')],
   ['history', (s) => s.replace('useState("home")', 'useState("history")')],
   ['settings', (s) => s.replace('useState("home")', 'useState("settings")')],
+  ['home-update-badge', withUpdate()],
+  ['settings-update', withUpdate((s) => s.replace('useState("home")', 'useState("settings")'))],
+  ['update-dialog', withUpdate((s) => s.replace('const [updateOpen, setUpdateOpen] = useState(false);', 'const [updateOpen, setUpdateOpen] = useState(true);'))],
+  ['update-dialog-updating', withUpdate((s) => s.replace('const [updateOpen, setUpdateOpen] = useState(false);', 'const [updateOpen, setUpdateOpen] = useState(true);').replace('const [updating, setUpdating] = useState(false);', 'const [updating, setUpdating] = useState(true);'))],
+  ['update-dialog-done', withUpdate((s) => s.replace('const [updateOpen, setUpdateOpen] = useState(false);', 'const [updateOpen, setUpdateOpen] = useState(true);').replace('const [updateResult, setUpdateResult] = useState(null);', 'const [updateResult, setUpdateResult] = useState({ ok: true, to: "0.14.0", restartRequired: true });'))],
+  ['update-dialog-failed', withUpdate((s) => s.replace('const [updateOpen, setUpdateOpen] = useState(false);', 'const [updateOpen, setUpdateOpen] = useState(true);').replace('const [updateResult, setUpdateResult] = useState(null);', 'const [updateResult, setUpdateResult] = useState({ ok: false, errorCode: "operation-error" });'))],
   ['home-wizard', (s) => s.replace('open: false, phase: "idle"', 'open: true, phase: "review"')],
   ['home-wizard-confirm', (s) => s.replace('open: false, phase: "idle"', 'open: true, phase: "confirm"')],
 ]
@@ -122,6 +146,92 @@ for (const [name, mutate] of cases) {
   })
 }
 
+test('update badge appears next to the product title only when a compatible update exists', () => {
+  const mutate = cases.find(([n]) => n === 'home-update-badge')[1]
+  const zh = renderWithData(mutate, 'zh', mockOverview)
+  assert.match(zh, /class="dc-update-badge"/, 'badge must render in the header')
+  assert.match(zh, /更新插件/)
+  const en = renderWithData(mutate, 'en', mockOverview)
+  assert.match(en, /Update plugin/)
+  const plain = renderWithData((s) => s, 'zh', mockOverview)
+  assert.doesNotMatch(plain, /class="dc-update-badge"/, 'no badge without an available update')
+})
+
+test('update dialog names the version pair and explains the restart', () => {
+  const mutate = cases.find(([n]) => n === 'update-dialog')[1]
+  const zh = renderWithData(mutate, 'zh', mockOverview)
+  assert.match(zh, /当前版本 0\.13\.1，新版本 0\.14\.0。/)
+  assert.match(zh, /重启 DSH/)
+  assert.match(zh, /立即更新/)
+  const en = renderWithData(mutate, 'en', mockOverview)
+  assert.match(en, /Current version 0\.13\.1; new version 0\.14\.0\./)
+  assert.match(en, /Restart DSH/)
+  assert.match(en, /Update now/)
+})
+
+test('update dialog reports finished and failed states', () => {
+  const done = renderWithData(cases.find(([n]) => n === 'update-dialog-done')[1], 'zh', mockOverview)
+  assert.match(done, /已更新到 0\.14\.0/)
+  assert.match(done, /关闭/)
+  assert.doesNotMatch(done, /立即更新/)
+  const failed = renderWithData(cases.find(([n]) => n === 'update-dialog-failed')[1], 'zh', mockOverview)
+  assert.match(failed, /更新失败/)
+  assert.match(failed, /重试/)
+  const failedEn = renderWithData(cases.find(([n]) => n === 'update-dialog-failed')[1], 'en', mockOverview)
+  assert.match(failedEn, /The update failed/)
+})
+
+test('settings page shows update status and the manual check', () => {
+  const zh = renderWithData(cases.find(([n]) => n === 'settings-update')[1], 'zh', mockOverview)
+  for (const t of ['插件更新', '当前版本', '可用版本', '状态']) assert.ok(zh.includes(t), t)
+  assert.match(zh, /有新版本可用/)
+  assert.match(zh, /检查更新/)
+  const en = renderWithData(cases.find(([n]) => n === 'settings-update')[1], 'en', mockOverview)
+  assert.ok(en.includes('Plugin updates'))
+  assert.match(en, /Update available/)
+  assert.match(en, /Check for updates/)
+})
+
+test('settings page shows readable environment facts and contact links', () => {
+  const mutate = cases.find(([n]) => n === 'settings')[1]
+  const overview = {
+    ...mockOverview,
+    quarantine: { root: '/Users/test/.Trash', kb: 2048, systemTrashKb: 8192, batches: [] },
+    paths: {
+      audit: '/Users/test/.dsh/deepclean-audit.log',
+      history: '/Users/test/.dsh/deepclean-history.json',
+      whitelist: '/Users/test/.dsh/deepclean-whitelist.json',
+    },
+  }
+  const zh = renderWithData(mutate, 'zh', overview)
+  for (const t of [
+    '平台: macOS',
+    '权限: 完全磁盘访问已授权',
+    '废纸篓（本插件占用）: /Users/test/.Trash · 2.0M',
+    '系统废纸篓共 8.0M',
+    '审计日志: /Users/test/.dsh/deepclean-audit.log',
+    '反馈与联系',
+    'coolway.me@gmail.com',
+    'huang_xiao_liang',
+    'huangxiaoliang/deepclean-mydisk-plugin',
+    '★ Star 项目',
+    '问题反馈',
+    'href="mailto:coolway.me@gmail.com"',
+    'href="https://github.com/huangxiaoliang/deepclean-mydisk-plugin"',
+    'href="https://github.com/huangxiaoliang/deepclean-mydisk-plugin/issues/new/choose"',
+  ]) assert.ok(zh.includes(t), t)
+
+  const en = renderWithData(mutate, 'en', overview)
+  for (const t of ['Platform: macOS', 'Permission: Full Disk Access granted', 'Trash (this plugin): /Users/test/.Trash', 'Feedback &amp; contact', 'Star project', 'Issues']) {
+    assert.ok(en.includes(t), t)
+  }
+
+  const win = renderWithData(mutate, 'zh', { ...overview, platform: 'win32' })
+  assert.match(win, /平台: Windows/)
+  assert.match(win, /权限: 不适用（仅 macOS 需要完全磁盘访问）/)
+  assert.match(win, /隔离区（本插件占用）: \/Users\/test\/\.Trash/)
+})
+
 test('wizard shows recommended items with data', () => {
   const mutate = cases.find(([n]) => n === 'home-wizard')[1]
   const html = renderWithData(mutate, 'zh')
@@ -137,6 +247,25 @@ test('clean page separates content categories, risks and actions', () => {
   assert.ok(!zh.includes('选择 ≥'), 'advanced batch operations should not crowd the toolbar')
   const en = renderWithData(mutate, 'en')
   for (const t of ['Categories', 'Developer caches', 'Cleanup impact', 'Move to Trash', 'More actions']) assert.ok(en.includes(t), t)
+})
+
+test('a failed process snapshot is explained instead of claiming apps are running', () => {
+  const overview = {
+    ...mockOverview,
+    report: {
+      ...mockOverview.report,
+      processSnapshot: 'unavailable',
+      browsers: [{ name: 'Chrome', path: '/tmp/chrome-cache', kb: 1024, running: true }],
+    },
+  }
+  const clean = (s) => s.replace('useState("home")', 'useState("clean")')
+  const zh = renderWithData(clean, 'zh', overview)
+  assert.match(zh, /无法确认应用运行状态，本轮不开放浏览器与应用缓存清理/)
+  assert.match(zh, /无法确认运行状态，暂不开放清理/)
+  assert.doesNotMatch(zh, /App 正在运行/)
+  const en = renderWithData(clean, 'en', overview)
+  assert.match(en, /Could not verify which apps are running/)
+  assert.match(en, /Running state could not be verified/)
 })
 
 test('photos page shows keep rules, folder filter and compare', () => {
@@ -190,6 +319,21 @@ test('Full Disk Access scan failure shows one actionable notice instead of scann
   assert.match(otherError, /扫描失败，请重试/)
   assert.match(otherError, /unrelated scanner error/)
   assert.doesNotMatch(otherError, /class="dc-permission"/)
+})
+
+test('a scan blocked by a software uninstall says so instead of "scan already running"', () => {
+  // 面板与照片页各有一个 note state，这里只改主面板（最后一个）。
+  const NOTE_STATE = 'const [note, setNote] = useState("");'
+  const withNote = (s) => {
+    const at = s.lastIndexOf(NOTE_STATE)
+    return s.slice(0, at) + 'const [note, setNote] = useState("软件卸载进行中，请先在软件页完成核验");' + s.slice(at + NOTE_STATE.length)
+  }
+  const zh = renderWithData(withNote, 'zh', noScanOverview)
+  assert.match(zh, /软件卸载进行中，请先在软件页完成核验/)
+  assert.doesNotMatch(zh, /扫描已在进行中/)
+  const en = renderWithData(withNote, 'en', noScanOverview)
+  assert.match(en, /A software uninstall is in progress/)
+  assert.match(en, /Software page/)
 })
 
 test('Windows Python setup is shown for a missing runtime and localized', () => {
@@ -842,4 +986,29 @@ test('overlapping application and developer rows cannot bypass a running browser
   assert.ok(!html.includes('aria-label="选择 Google'), 'parent cache is read-only')
   assert.ok(!html.includes('aria-label="选择 sub-cache'), 'descendant cache is read-only')
   assert.ok(html.includes('App 正在运行，退出后可清理'))
+})
+
+test('software page offers an explicit journal reset, including in English', () => {
+  const mutate = cases.find(([name]) => name === 'software-journal-error')[1]
+  assert.match(renderView(mutate), /重置操作记录/)
+  assert.match(renderView(mutate, 'en'), /Reset operation history/)
+})
+
+test('software page shows a partial desktop warning without hiding readable apps', () => {
+  const mutate = cases.find(([name]) => name === 'software-source-warning')[1]
+  assert.match(renderView(mutate), /部分应用无法读取；已读取的应用仍可单独处理/)
+  assert.match(renderView(mutate, 'en'), /the readable ones can still be handled individually/)
+})
+
+test('software page sorts actionable items by name and groups blocked ones by reason', () => {
+  const mutate = cases.find(([name]) => name === 'software-grouped')[1]
+  const zh = renderView(mutate)
+  assert.ok(zh.includes('暂不能处理'), 'blocked section summary')
+  assert.ok(zh.indexOf('Alpha App') < zh.indexOf('Zeta App'), 'actionable items sorted by name')
+  assert.ok(zh.indexOf('Zeta App') < zh.indexOf('暂不能处理'), 'actionable items come before the blocked section')
+  assert.ok(zh.indexOf('Running App') > zh.indexOf('暂不能处理'), 'blocked items stay inside the collapsed section')
+  assert.ok(zh.indexOf('应用正在运行或无法确认运行状态') < zh.indexOf('系统组件受保护'), 'blocked groups follow the fixed reason order')
+  const en = renderView(mutate, 'en')
+  assert.ok(en.includes('Not actionable yet'), 'english blocked section summary')
+  assert.ok(en.indexOf('Alpha App') < en.indexOf('Zeta App'), 'english actionable items sorted by name')
 })

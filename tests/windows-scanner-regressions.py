@@ -13,7 +13,9 @@ import shutil
 import sys
 import tempfile
 import time
+from collections import namedtuple
 from pathlib import Path
+from unittest.mock import patch
 
 # Windows 的管道/控制台默认 cp1252，直接 print 中文会抛 UnicodeEncodeError；
 # 与 resources/scripts/platforms/windows.py 的 _stdout_utf8 保持一致，强制 UTF-8。
@@ -53,6 +55,19 @@ try:
 
     _rows, trunc2 = win.big_files(str(home), 1, [], deadline=time.time() - 1)
     check("big_files 超预算即截断", trunc2)
+
+    # 云盘 prune 必须按目录边界：`.../OneDriveBackup` 不是云盘，不能连带跳过
+    cloud_home = tmp / "cloudhome"
+    (cloud_home / "OneDrive").mkdir(parents=True)
+    (cloud_home / "OneDrive" / "cloud.bin").write_bytes(b"x" * 2 * 1024 * 1024)
+    (cloud_home / "OneDriveBackup").mkdir()
+    (cloud_home / "OneDriveBackup" / "local.bin").write_bytes(b"x" * 2 * 1024 * 1024)
+    crows, _ = win.big_files(str(cloud_home), 1, [str(cloud_home / "OneDrive")])
+    crels = sorted(os.path.relpath(r["path"], cloud_home) for r in crows)
+    check("big_files 仍跳过真正的云盘目录",
+          os.path.join("OneDrive", "cloud.bin") not in crels, repr(crels))
+    check("big_files 不把 OneDriveBackup 误当云盘",
+          os.path.join("OneDriveBackup", "local.bin") in crels, repr(crels))
 
     caches = [
         {"path": "C:/ok-cache", "label": "OK", "kb": 100, "safe": True, "system": False,
@@ -166,6 +181,14 @@ try:
           win.browser_exe("Chrome（Profile 2）") == "chrome.exe"
           and win.browser_exe("Firefox") == "firefox.exe"
           and win.browser_exe("未知") == "")
+    # 进程快照 fail-closed：tasklist 失败返回空集合时不能当成「全部未运行」
+    check("空快照判定不可用", win.snapshot_available(set()) is False)
+    check("非空快照判定可用", win.snapshot_available({"explorer.exe"}) is True)
+    check("快照不可用时浏览器标 running", win.browser_running("Chrome", set()) is True)
+    check("快照可用且浏览器未运行时不算 running",
+          win.browser_running("Chrome", {"explorer.exe"}) is False)
+    check("快照可用且浏览器进程命中时标 running",
+          win.browser_running("Chrome（Profile 2）", {"chrome.exe"}) is True)
     # 卸载残留细粒度拆分（纯函数，跨平台可跑）
     leftover = tmp / "AppData" / "Local" / "SomeApp"
     (leftover / "Cache").mkdir(parents=True)
@@ -188,10 +211,11 @@ try:
     check("拆分路径逃逸容器时不拆", all(not g.get("cachePart") for g in g_out) and g_out[0]["kb"] == 10000, repr(g_out))
     # 运行中/聊天类/安装表缺失时不拆
     apps = {"SomeApp": {"display": "SomeApp", "installLocation": None}}
-    check("聊天类残留不拆", not win.should_split_leftover("WeChat", apps, set()))
+    check("聊天类残留不拆", not win.should_split_leftover("WeChat", apps, {"explorer.exe"}))
     check("运行中残留不拆", not win.should_split_leftover("SomeApp", apps, {"someapp.exe"}))
-    check("安装表缺失时 fail-closed", not win.should_split_leftover("SomeApp", {}, set()))
-    check("普通未安装残留可拆", win.should_split_leftover("SomeApp", apps, set()))
+    check("安装表缺失时 fail-closed", not win.should_split_leftover("SomeApp", {}, {"explorer.exe"}))
+    check("进程快照不可用时 fail-closed", not win.should_split_leftover("SomeApp", apps, set()))
+    check("普通未安装残留可拆", win.should_split_leftover("SomeApp", apps, {"explorer.exe"}))
     wsplit = [g for g in wgroups if g.get("cachePart")]
     check("windows 拆分出 safe 缓存组", len(wsplit) == 1 and wsplit[0]["bucket"] == "safe", repr(wgroups))
     check("windows 原 confirm 组扣减缓存大小", [g for g in wgroups if g["baseId"] == "SomeApp"][0]["kb"] == 4000, repr(wgroups))
@@ -278,8 +302,92 @@ try:
               str((profile / "OneDrive - Contoso").resolve()) in roots, repr(sorted(roots)))
         check("cloud_roots 识别 Dropbox",
               str((profile / "Dropbox").resolve()) in roots, repr(sorted(roots)))
+        # 前缀匹配必须有目录边界与 normcase（否则 OneDriveBackup 误判、大小写不同漏判）
+        onedrive_root = str(onedrive.resolve())
+        backup = os.path.join(str(profile.resolve()), "OneDriveBackup")
+        check("云盘根自身判为云盘", win.under_cloud(onedrive_root, [onedrive_root]) is True)
+        check("云盘子路径判为云盘",
+              win.under_cloud(os.path.join(onedrive_root, "sub", "f.bin"), [onedrive_root]) is True)
+        check("相似前缀目录不误判为云盘", win.under_cloud(backup, [onedrive_root]) is False)
+        check("相似前缀子路径不误判为云盘",
+              win.under_cloud(os.path.join(backup, "x.bin"), [onedrive_root]) is False)
+        check("空路径/空根安全返回 False",
+              win.under_cloud("", [onedrive_root]) is False and win.under_cloud(None, None) is False)
+        if os.name == "nt":
+            check("云盘路径大小写不同仍判为云盘",
+                  win.under_cloud(str(onedrive / "Sub").upper(), [onedrive_root.lower()]) is True)
+        else:
+            print("SKIP  云盘路径大小写（POSIX 上 os.path.normcase 为恒等，大小写敏感）")
     finally:
         for k, v in saved_cloud_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    # estimate 口径：被 UI 隐藏的父级缓存不计入 cacheKb；safe/confirm 算法保持现状
+    wbase = "C:/Users/x/AppData/Local/Temp"
+    est_report = {
+        "caches": [
+            {"path": wbase + "/Google", "label": "缓存", "kb": 5000, "safe": True, "system": False,
+             "admin": False, "cleanable": True, "advice": "缓存，可重建"},
+            {"path": wbase + "/Other", "label": "缓存", "kb": 3000, "safe": True, "system": False,
+             "admin": False, "cleanable": True, "advice": "缓存，可重建"},
+            {"path": wbase + "/Keep", "label": "缓存", "kb": 2000, "safe": True, "system": False,
+             "admin": False, "cleanable": True, "advice": "缓存，可重建"},
+            {"path": wbase + "/WithDev", "label": "缓存", "kb": 1200, "safe": True, "system": False,
+             "admin": False, "cleanable": True, "advice": "缓存，可重建"},
+            {"path": wbase + "/Locked", "label": "缓存", "kb": 4000, "safe": True, "system": False,
+             "admin": False, "cleanable": False, "advice": "运行中不可清"},
+        ],
+        "devCaches": [{"path": wbase + "/WithDev", "advice": "x", "kb": 1000}],
+        "browsers": [{"name": "Chrome", "path": wbase + "/Google/Chrome", "kb": 4000, "running": False}],
+        "appCaches": [{"baseId": "Foo", "app": "Foo", "kb": 1500, "running": False,
+                       "cleanable": True, "paths": [wbase + "/Other/sub"]}],
+        "special": [],
+        "leftoverGroups": [
+            {"baseId": "A", "kb": 20000, "bucket": "safe", "paths": [wbase + "/LeftoverA"]},
+            {"baseId": "B", "kb": 500, "bucket": "safe", "paths": [wbase + "/LeftoverB"]},
+            {"baseId": "C", "kb": 7000, "bucket": "confirm", "paths": [wbase + "/LeftoverC"]},
+        ],
+    }
+    west = win.estimate_of(est_report)
+    check("windows estimate 排除被具体条目覆盖/包住的父级缓存", west["cacheKb"] == 2000, repr(west))
+    check("windows estimate 排除与 devCaches 重复的缓存行（UI 已隐藏）",
+          west["overlapKb"] == 0 and west["devKb"] == 1000, repr(west))
+    check("windows estimate 保持 safeKb 现有算法（全部 safe 组）", west["safeKb"] == 20500, repr(west))
+    check("windows estimate 保留 confirmKb", west["confirmKb"] == 7000, repr(west))
+    check("windows estimate totalKb 不含 confirmKb", west["totalKb"] == 20500 + 2000 + 1000, repr(west))
+
+    # 完整合成扫描（OS 发现全部打桩，不触注册表/ctypes）：报告必须带 minLeftoverKb / processSnapshot
+    saved_scan_env = {k: os.environ.get(k) for k in
+                      ("USERPROFILE", "LOCALAPPDATA", "APPDATA", "PROGRAMDATA")}
+    try:
+        scan_home = tmp / "scan-home"
+        slocal, sroaming, sdata = (scan_home / "Local", scan_home / "Roaming", scan_home / "ProgramData")
+        for d in (slocal, sroaming, sdata):
+            d.mkdir(parents=True)
+        os.environ.update({"USERPROFILE": str(scan_home), "LOCALAPPDATA": str(slocal),
+                           "APPDATA": str(sroaming), "PROGRAMDATA": str(sdata)})
+        ns_scan = argparse.Namespace(home=str(scan_home), quick=True, top=20, min_mb=1,
+                                     min_leftover_mb=10, redact=False)
+        usage = namedtuple("usage", "total used free")(1000000, 400000, 600000)
+        with patch.object(win, "installed_apps", return_value={}), \
+             patch.object(win, "is_admin", return_value=False), \
+             patch.object(win, "cloud_roots", return_value=[]), \
+             patch.object(win, "cache_specs", return_value=[]), \
+             patch.object(win, "dev_specs", return_value=[]), \
+             patch.object(win, "running_process_names", return_value={"explorer.exe"}), \
+             patch.object(win.shutil, "disk_usage", return_value=usage):
+            sreport = win.scan(ns_scan)
+        check("windows 报告带 minLeftoverKb", sreport.get("minLeftoverKb") == 10 * 1024,
+              repr(sreport.get("minLeftoverKb")))
+        check("windows 报告带 processSnapshot", sreport.get("processSnapshot") == "ok",
+              repr(sreport.get("processSnapshot")))
+        check("windows 报告 estimate 带 confirmKb",
+              isinstance(sreport.get("estimate", {}).get("confirmKb"), int), repr(sreport.get("estimate")))
+    finally:
+        for k, v in saved_scan_env.items():
             if v is None:
                 os.environ.pop(k, None)
             else:

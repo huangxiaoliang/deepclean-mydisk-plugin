@@ -129,12 +129,28 @@ def windows_hashes(files):
     return {r["path"]: int(r["hash"], 16) for r in rows if r.get("hash")}
 
 
+def normalize_gray(g):
+    """把 sips 产出的 BMP 灰度矩阵统一成 8 行 x 9 列。
+
+    EXIF Orientation 5/6/7/8 时 sips 会按方向旋转，输出 8 宽 x 9 高（宽高互换），
+    旧实现直接按下标取 g[y][x+1] 会 IndexError 并让整次相似照片扫描失败。
+    这里在尺寸互换时转置一次；仍不足 8x9 就抛 ValueError（由 collect 记为 skipped）。
+    """
+    if not g or not g[0]:
+        raise ValueError("empty bitmap")
+    if len(g[0]) < 9 and len(g) >= 9:
+        g = [list(row) for row in zip(*g)]
+    if len(g) < 8 or len(g[0]) < 9:
+        raise ValueError(f"unexpected bitmap {len(g[0])}x{len(g)}")
+    return g
+
+
 def dhash(path):
     with tempfile.TemporaryDirectory(prefix="dc-photo-") as td:
         out = os.path.join(td, "x.bmp")
         subprocess.run(["sips", "-z", "8", "9", "-s", "format", "bmp", str(path), "--out", out],
                        capture_output=True, timeout=30, check=True)
-        g = bmp_gray(out)
+        g = normalize_gray(bmp_gray(out))
     bits = 0
     for y in range(8):
         for x in range(8):
