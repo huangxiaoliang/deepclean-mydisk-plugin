@@ -26,7 +26,7 @@ python3 tests/tree-regressions.py                     # 动了 tree.py 才需要
 ```
 
 - 只改 `.md` 不用跑测试。
-- macOS 上 `npm test` 是 **335 用例 / 332 pass / 3 skip**；3 个 skip 是 Windows 专用用例（`tests/host.test.mjs` 的 Windows tree / thumbnail 与 `software-windows.ps1` 脚本回归），属于预期，不要删改断言来「修绿」；Windows 上按 335 总数应为 **326 pass / 9 skip**（跳过 9 个 macOS / 非 Windows 宿主专用用例，以 Windows CI 实测为准）。
+- macOS 上 `npm test` 是 **340 用例 / 337 pass / 3 skip**；3 个 skip 是 Windows 专用用例（`tests/host.test.mjs` 的 Windows tree / thumbnail 与 `software-windows.ps1` 脚本回归），属于预期，不要删改断言来「修绿」；Windows 上按 340 总数应为 **331 pass / 9 skip**（跳过 9 个 macOS / 非 Windows 宿主专用用例，以 Windows CI 实测为准）。
 - 改 `lib/client.js` 的界面后，用 `node scripts/preview.mjs`（127.0.0.1:4173，宿主 API 全 mock、路径虚构在 `/demo`）人工确认；预览不碰真实磁盘。
 - 提交前 `git diff` 自查：不能包含 `report.md` / `report.json` / `acceptance-report/` / `__pycache__` 等产物。
 
