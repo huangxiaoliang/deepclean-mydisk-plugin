@@ -1,5 +1,16 @@
 # deepclean-mydisk 插件变更
 
+## 未发布
+- 修复（Windows 软件清单）：默认客户端执行策略是 Restricted，`software-windows.ps1` 以 `-File` 启动会被直接拒绝，导致软件页来源全部失败。改为与照片/缩略图一致的 `-EncodedCommand` 执行（不受脚本执行策略或 GPO 影响）
+- 修复（Windows 软件清单）：注册表项没有 `InstallLocation` 时位置都是空串，去重逻辑把第一个之后的 66 个程序全部当成同一安装丢掉（WPS Office、Node.js、VC++/.NET 运行时等）。现在只在位置已知时按安装位置去重
+- 修复（软件来源）：全局 npm prefix 目录尚未创建时 `npm list --global` 以 ENOENT 退出，被误报为来源失败；现在按「没有全局包」处理，不再显示错误来源
+- 安全（鉴权一致性）：`/api/software` 系列路由补上宿主 `connection.requestRejection` 校验，与面板路由一致；此前未登录 cookie 也能取得写接口 token 并调用 plan/execute（自定义头与 loopback 围栏仍保留为第二层）
+- 修复（软件页）：桌面来源为 `partial` 时，客户端把所有可读 App 也判为不可操作；现在与后端 `sourceFor()` 一致，可读 App 仍能预览卸载/移出
+- 修复（Windows 软件清单）：Appx 优先显示 Start 菜单名称（身份名保留在 `identityName`，搜索仍可命中）；语言/资源包（`IsResourcePackage`）按 `protected_system` 保护，Start 菜单查询失败只降级为来源警告
+- 修复（估算口径）：`estimate` 计入可清理的浏览器 / 应用缓存 / 聊天缓存，新增 `browserKb` / `appCacheKb` / `specialKb`，`totalKb` 与面板可勾选合计、`disk_report` 与 AI 摘要保持一致
+- 修复（软件空态）：所有来源都读取失败时显示明确告警与来源错误，而不是「没有匹配的软件」
+- 测试 329（macOS 326 pass / 3 skip；Windows 按 329 总数应为 320 pass / 9 skip，以 CI 实测为准），新增 Windows 清单编码执行、空位置去重、缺失 npm prefix、软件路由鉴权、partial 可操作、全来源失败、Start 菜单显示名与真实脚本、estimate 新字段回归
+
 ## 0.14.0 — 2026-11-07
 - 软件页：清单从按哈希排序改为「可处理项在前、按名称排序；暂不能处理的收进折叠分区并按原因分组」（运行中 / 官方卸载器 / 依赖 / 归属冲突 / 受保护等，组头带计数），预览夹具补充运行中与官方卸载器示例
 - AI 辅助（只读）：软件页新增三个解释入口——不可卸载条目「问 AI 为什么不能卸载」、卸载计划「让 AI 解释这些影响」、操作记录「AI 解释这次结果」；提示词只带脱敏条目元数据与程序判定的枚举状态（`blockReason` / `warnings` / job 状态与错误码），不发送卸载命令与完整路径，规则禁止输出命令与绕过程序判定

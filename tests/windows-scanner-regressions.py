@@ -361,7 +361,10 @@ try:
           west["overlapKb"] == 0 and west["devKb"] == 1000, repr(west))
     check("windows estimate 保持 safeKb 现有算法（全部 safe 组）", west["safeKb"] == 20500, repr(west))
     check("windows estimate 保留 confirmKb", west["confirmKb"] == 7000, repr(west))
-    check("windows estimate totalKb 不含 confirmKb", west["totalKb"] == 20500 + 2000 + 1000, repr(west))
+    check("windows estimate 计入可清理的浏览器缓存", west.get("browserKb") == 4000, repr(west))
+    check("windows estimate 计入可清理的应用缓存", west.get("appCacheKb") == 1500, repr(west))
+    check("windows estimate totalKb 不含 confirmKb 且覆盖可清理缓存",
+          west["totalKb"] == 20500 + 2000 + 1000 + 4000 + 1500, repr(west))
 
     # 完整合成扫描（OS 发现全部打桩，不触注册表/ctypes）：报告必须带 minLeftoverKb / processSnapshot
     saved_scan_env = {k: os.environ.get(k) for k in

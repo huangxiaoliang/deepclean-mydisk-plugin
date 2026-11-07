@@ -855,8 +855,16 @@ def estimate_of(r, min_leftover_mb):
     cache = sum(cache_map.values()) - overlap
     dev = sum(dev_map.values())
     confirm = sum(g["kb"] for g in r["leftoverGroups"] if g["bucket"] == "confirm")
+    # 浏览器 / 应用缓存 / 聊天缓存同样进入允许集合，也必须计入「预计可释放」，
+    # 否则 disk_report 与 AI 摘要会比面板可勾选合计小。
+    browser = sum(b.get("kb", 0) for b in r.get("browsers") or [] if not b.get("running"))
+    app_cache = sum(a.get("kb", 0) for a in r.get("appCaches") or []
+                    if not a.get("running") and a.get("cleanable", True))
+    special = sum(c.get("kb", 0) for app in r.get("special") or []
+                  for c in app.get("categories") or [] if c.get("cleanable"))
     return {"safeKb": safe, "confirmKb": confirm, "cacheKb": cache, "devKb": dev,
-            "overlapKb": overlap, "totalKb": safe + cache + dev}
+            "browserKb": browser, "appCacheKb": app_cache, "specialKb": special,
+            "overlapKb": overlap, "totalKb": safe + cache + dev + browser + app_cache + special}
 
 
 def redacted(text, home, host):

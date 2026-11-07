@@ -165,10 +165,14 @@ test('pruneReport drops cleaned rows and keeps partially cleaned groups', () => 
   assert.deepEqual(pruned.appCaches[0].paths, ['/x/ac2'])
   assert.equal(pruned.special.length, 0, 'special app with no categories left is removed')
   // 估算按剪枝后的行复算：a 组已清掉（-10）、c1 已清掉（-1），b 组只能保留扫描时 kb。
+  // 应用缓存 / 聊天缓存已全部清掉；ac 组只剩部分路径，仍按扫描时 kb 计入（与 safe 组一致）。
   assert.equal(pruned.estimate.safeKb, 20, 'cleaned leftover groups stop counting toward the estimate')
   assert.equal(pruned.estimate.cacheKb, 2)
   assert.equal(pruned.estimate.devKb, 1)
-  assert.equal(pruned.estimate.totalKb, 23)
+  assert.equal(pruned.estimate.browserKb, 0)
+  assert.equal(pruned.estimate.appCacheKb, 5)
+  assert.equal(pruned.estimate.specialKb, 0)
+  assert.equal(pruned.estimate.totalKb, 28)
   assert.equal(pruned.trashKbStale, true, 'the scan-time trash total is marked stale after a cleanup')
   assert.deepEqual(plugin.pruneReport(report, new Set()).leftoverGroups.length, 2, 'empty set is a no-op')
 })
@@ -189,7 +193,9 @@ test('estimateOf mirrors the scanner口径 and skips cache parents hidden by spe
     // 同一个开发缓存也出现在通用缓存列表里（扫描器两侧都列），由 specific 去重保证只算一次。
     caches: [{ path: google, kb: 300 * 1024 }, { path: plain, kb: 100 * 1024 }, { path: dev, kb: 90 * 1024 }, { path: '/x/sys', kb: 50 * 1024, system: true }],
     devCaches: [{ path: dev, kb: 90 * 1024 }],
-    browsers: [{ name: 'Chrome', path: chrome, kb: 280 * 1024 }],
+    browsers: [{ name: 'Chrome', path: chrome, kb: 280 * 1024 }, { name: 'Edge', path: '/x/edge', kb: 50 * 1024, running: true }],
+    appCaches: [{ baseId: 'app', app: 'App', kb: 7 * 1024, running: false, cleanable: true, paths: ['/x/app'] }, { baseId: 'run', app: 'Run', kb: 9 * 1024, running: true, cleanable: false, paths: ['/x/run'] }],
+    special: [{ app: '微信', categories: [{ name: '缓存', kb: 3 * 1024, cleanable: true, paths: ['/x/chat'] }, { name: '图片', kb: 4 * 1024, cleanable: false, paths: ['/x/img'] }] }],
   }
   const est = plugin.estimateOf(report)
   assert.equal(est.safeKb, 20 * 1024, 'safe groups below minLeftoverKb stay out')
@@ -198,8 +204,11 @@ test('estimateOf mirrors the scanner口径 and skips cache parents hidden by spe
   // 开发缓存同时出现在 caches 里也按 specific 去重，金额只落在 devKb 上。
   assert.equal(est.cacheKb, 100 * 1024)
   assert.equal(est.devKb, 90 * 1024)
+  assert.equal(est.browserKb, 280 * 1024, 'running browsers stay out of the estimate')
+  assert.equal(est.appCacheKb, 7 * 1024, 'running app caches stay out of the estimate')
+  assert.equal(est.specialKb, 3 * 1024, 'read-only chat categories stay out of the estimate')
   assert.equal(est.overlapKb, 0)
-  assert.equal(est.totalKb, 210 * 1024)
+  assert.equal(est.totalKb, (20 + 100 + 90 + 280 + 7 + 3) * 1024)
 })
 
 test('allowedPaths drops cache parents the panel hides behind specific rows', () => {

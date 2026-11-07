@@ -148,7 +148,11 @@ try:
           est["overlapKb"] == 0 and est["devKb"] == 1000, repr(est))
     check("estimate safeKb 仍按 min_leftover_mb 阈值", est["safeKb"] == 20000, repr(est))
     check("estimate 补 confirmKb", est.get("confirmKb") == 7000, repr(est))
-    check("estimate totalKb 不含 confirmKb", est["totalKb"] == 20000 + 2000 + 1000, repr(est))
+    check("estimate 计入可清理的浏览器缓存", est.get("browserKb") == 4000, repr(est))
+    check("estimate 计入可清理的应用缓存", est.get("appCacheKb") == 1500, repr(est))
+    check("estimate 计入可清理的聊天缓存", est.get("specialKb") == 100, repr(est))
+    check("estimate totalKb 不含 confirmKb 且覆盖可清理缓存",
+          est["totalKb"] == 20000 + 2000 + 1000 + 4000 + 1500 + 100, repr(est))
 
     # 完整 quick 扫描（临时 HOME、只读）：报告必须带 minLeftoverKb / processSnapshot
     scan_home = tmp / "scan-home"

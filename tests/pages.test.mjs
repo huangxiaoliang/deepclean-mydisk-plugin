@@ -43,6 +43,11 @@ const cases = [
   ['software', (s) => s.replace('useState("home")', 'useState("software")')],
   ['software-journal-error', (s) => s.replace('useState("home")', 'useState("software")').replace('useState({ items: [], sources: [], jobs: [] })', 'useState({ items: [], sources: [], jobs: [], journalError: true })')],
   ['software-source-warning', (s) => s.replace('useState("home")', 'useState("software")').replace('useState({ items: [], sources: [], jobs: [] })', 'useState({ items: [], sources: [{ id: "desktop", name: "macOS", location: "", status: "ok", warning: "desktop_partial" }], jobs: [] })')],
+  ['software-partial-source', (s) => s.replace('useState("home")', 'useState("software")').replace('useState({ items: [], sources: [], jobs: [] })', 'useState({ at: 1, sources: [{ id: "desktop", name: "macOS", location: "", status: "partial", error: "desktop_partial" }], jobs: [], items: [' +
+    '{ id: "readable", sourceId: "desktop", provider: "macOS", name: "Readable App", version: "1", kind: "desktop", location: "/Applications/Readable.app", executable: true, warnings: [] },' +
+    '{ id: "blocked", sourceId: "desktop", provider: "macOS", name: "Blocked App", version: "1", kind: "desktop", location: "/Applications/Blocked.app", executable: false, blockReason: "application_running", warnings: [] }' +
+  '] })')],
+  ['software-all-sources-failed', (s) => s.replace('useState("home")', 'useState("software")').replace('useState({ items: [], sources: [], jobs: [] })', 'useState({ at: 1, sources: [{ id: "desktop", name: "Windows", location: "", status: "error", error: "source_failed" }, { id: "npm", name: "npm", location: "", status: "error", error: "source_failed" }], jobs: [], items: [] })')],
   ['software-grouped', (s) => s.replace('useState("home")', 'useState("software")').replace('useState({ items: [], sources: [], jobs: [] })', 'useState({ at: 1, sources: [{ id: "desktop", name: "macOS", location: "", status: "ok" }], jobs: [], items: [' +
     '{ id: "zeta", sourceId: "desktop", provider: "macOS", name: "Zeta App", version: "1", kind: "desktop", location: "/Applications/Zeta.app", executable: true, warnings: [] },' +
     '{ id: "alpha", sourceId: "desktop", provider: "macOS", name: "Alpha App", version: "1", kind: "desktop", location: "/Applications/Alpha.app", executable: true, warnings: [] },' +
@@ -998,6 +1003,27 @@ test('software page shows a partial desktop warning without hiding readable apps
   const mutate = cases.find(([name]) => name === 'software-source-warning')[1]
   assert.match(renderView(mutate), /部分应用无法读取；已读取的应用仍可单独处理/)
   assert.match(renderView(mutate, 'en'), /the readable ones can still be handled individually/)
+})
+
+test('software page keeps readable apps actionable when the desktop source is partial', () => {
+  const mutate = cases.find(([name]) => name === 'software-partial-source')[1]
+  const zh = renderView(mutate)
+  assert.match(zh, /Readable App/)
+  assert.match(zh, /预览卸载/, 'readable app keeps its uninstall action')
+  assert.ok(zh.indexOf('Readable App') < zh.indexOf('暂不能处理'), 'readable app stays in the actionable list')
+  assert.ok(zh.indexOf('Blocked App') > zh.indexOf('暂不能处理'), 'blocked app stays in the collapsed section')
+  assert.match(zh, /部分应用无法读取/)
+})
+
+test('software page reports when every source failed instead of an empty result', () => {
+  const mutate = cases.find(([name]) => name === 'software-all-sources-failed')[1]
+  const zh = renderView(mutate)
+  assert.match(zh, /所有软件来源都读取失败/)
+  assert.ok(!zh.includes('没有匹配的软件'), 'a total source failure is not an empty result')
+  assert.match(zh, /来源查询失败/)
+  const en = renderView(mutate, 'en')
+  assert.match(en, /Every software source failed/)
+  assert.ok(!en.includes('No matching software'))
 })
 
 test('software page sorts actionable items by name and groups blocked ones by reason', () => {

@@ -680,9 +680,16 @@ def estimate_of(r):
     dev_kb = sum(dev_map.values())
     safe_kb = sum(g["kb"] for g in r["leftoverGroups"] if g["bucket"] == "safe")
     confirm_kb = sum(g["kb"] for g in r["leftoverGroups"] if g["bucket"] != "safe")
+    # 浏览器 / 应用缓存同样进入允许集合，也必须计入「预计可释放」，
+    # 否则 disk_report 与 AI 摘要会比面板可勾选合计小。
+    browser_kb = sum(b.get("kb", 0) for b in r.get("browsers") or [] if not b.get("running"))
+    app_cache_kb = sum(a.get("kb", 0) for a in r.get("appCaches") or []
+                       if not a.get("running") and a.get("cleanable", True))
     return {"safeKb": safe_kb, "confirmKb": confirm_kb,
-            "cacheKb": cache_kb, "devKb": dev_kb, "overlapKb": overlap_kb,
-            "totalKb": safe_kb + cache_kb + dev_kb}
+            "cacheKb": cache_kb, "devKb": dev_kb,
+            "browserKb": browser_kb, "appCacheKb": app_cache_kb, "specialKb": 0,
+            "overlapKb": overlap_kb,
+            "totalKb": safe_kb + cache_kb + dev_kb + browser_kb + app_cache_kb}
 
 
 def scan(args):

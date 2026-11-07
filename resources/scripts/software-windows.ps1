@@ -31,13 +31,29 @@ foreach ($root in $roots) {
         }
     } catch { $errors.Add('registry_unavailable') }
 }
+$startNames = @{}
+try {
+    foreach ($sa in Get-StartApps) {
+        $appId = [string]$sa.AppID
+        if (!$appId) { continue }
+        $family = $appId.Split('!')[0]
+        if ($family -and !$startNames.ContainsKey($family)) { $startNames[$family] = [string]$sa.Name }
+    }
+} catch { $errors.Add('startapps_unavailable') }
 $winGetFile = ''
 try {
     foreach ($p in Get-AppxPackage) {
         if ($p.Name -eq 'Microsoft.DesktopAppInstaller' -and $p.PublisherId -eq '8wekyb3d8bbwe' -and $p.InstallLocation) {
             $winGetFile = Join-Path -Path $p.InstallLocation -ChildPath 'winget.exe'
         }
-        $items.Add(@{ key=$p.PackageFullName; name=$p.Name; version=[string]$p.Version; location=$p.InstallLocation; scope='user'; action='appx'; packageFullName=$p.PackageFullName; blockReason=$(if ($p.NonRemovable -or $p.IsFramework) {'protected_system'} elseif ($p.Name -match 'DeepSeek|DeepClean|Harness|Microsoft\.DesktopAppInstaller|WindowsAppRuntime') {'protected_runtime'} else {''}) })
+        $family = [string]$p.PackageFamilyName
+        # 开始菜单里的显示名比包身份名（甚至 GUID）更适合展示；取不到时回退到身份名。
+        $startName = ''
+        if ($family -and $startNames.ContainsKey($family)) { $startName = [string]$startNames[$family] }
+        $displayName = if ($startName) { $startName } else { [string]$p.Name }
+        # 语言/资源包与框架包不可卸载；资源包在无 NonRemovable/IsFramework 时也要挡住。
+        $protected = $p.NonRemovable -or $p.IsFramework -or $p.IsResourcePackage
+        $items.Add(@{ key=$p.PackageFullName; name=$displayName; identityName=[string]$p.Name; startName=$startName; version=[string]$p.Version; location=$p.InstallLocation; scope='user'; action='appx'; packageFullName=$p.PackageFullName; resourcePackage=[bool]$p.IsResourcePackage; blockReason=$(if ($protected) {'protected_system'} elseif ($p.Name -match 'DeepSeek|DeepClean|Harness|Microsoft\.DesktopAppInstaller|WindowsAppRuntime') {'protected_runtime'} else {''}) })
     }
 } catch { $errors.Add('appx_unavailable') }
 @{items=@($items.ToArray()); errors=@($errors.ToArray()); winGetFile=$winGetFile} | ConvertTo-Json -Depth 6 -Compress
