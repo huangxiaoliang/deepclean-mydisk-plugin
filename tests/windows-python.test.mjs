@@ -16,7 +16,7 @@ delete process.env.PYTHON
 const { apply } = await import('../lib/index.js')
 test.after(() => fs.rmSync(root, { recursive: true, force: true }))
 
-async function scan(t, python, { cancel = false } = {}) {
+async function scan(t, python, { cancel = false, afterStart } = {}) {
   const platform = process.platform
   Object.defineProperty(process, 'platform', { value: 'win32' })
   const launches = []
@@ -63,6 +63,7 @@ async function scan(t, python, { cancel = false } = {}) {
   }
   assert.equal((await call('POST')).code, 202)
   if (cancel) assert.equal((await call('POST', '/cancel')).code, 200)
+  await afterStart?.()
   for (let i = 0; i < 100; i++) {
     const { body } = await call('GET')
     if (body.scan.status !== 'running') return { ...body, launches }
@@ -71,7 +72,8 @@ async function scan(t, python, { cancel = false } = {}) {
   assert.fail('scan did not finish')
 }
 
-const missing = cmd => ({ error: Object.assign(new Error(`spawn ${cmd} ENOENT`), { code: 'ENOENT' }) })
+const spawnError = (cmd, code) => ({ error: Object.assign(new Error(`spawn ${cmd} ${code}`), { code }) })
+const missing = cmd => spawnError(cmd, 'ENOENT')
 const available = { code: 0, out: 'deepclean-python-ok\n' }
 
 function finishScan(args) {
@@ -141,6 +143,43 @@ test('Windows scan falls back to the Python shipped with DSH when PATH has no us
   } finally {
     fs.rmSync(path.join(root, 'dsh-runtimes'), { recursive: true, force: true })
   }
+})
+
+test('Windows scan reports a blocked Python launch instead of prompting for installation', async (t) => {
+  const { scan: result, launches } = await scan(t, cmd => cmd === 'py' ? spawnError(cmd, 'EACCES') : missing(cmd))
+  assert.equal(result.errorCode, 'python_probe_failed')
+  assert.match(result.error, /py -3：启动被拒绝/)
+  assert.deepEqual(launches.map(([cmd]) => cmd), ['py', 'python', 'python3'])
+})
+
+test('Windows scan preserves a Python probe timeout when the other candidates are missing', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const { scan: result, launches } = await scan(t, cmd => cmd === 'py' ? { hold: true } : missing(cmd), {
+    async afterStart() {
+      t.mock.timers.tick(5000)
+      await new Promise(setImmediate)
+    },
+  })
+  assert.equal(result.errorCode, 'python_probe_failed')
+  assert.match(result.error, /py -3：探测超时/)
+  assert.deepEqual(launches.map(([cmd]) => cmd), ['py', 'taskkill', 'python', 'python3'])
+})
+
+test('Windows scan still offers installation when the launchers have no compatible runtime', async (t) => {
+  const { scan: result } = await scan(t, cmd => ({
+    py: { code: 0xA0000006 },
+    python: { code: 9009 },
+    python3: { code: 0, out: 'deepclean-python-unsupported\n' },
+  })[cmd])
+  assert.equal(result.errorCode, 'python_unavailable')
+})
+
+test('Windows scan still tries another interpreter after a launch is blocked', async (t) => {
+  const { scan: result } = await scan(t, (cmd, args) => {
+    if (cmd === 'py') return spawnError(cmd, 'EACCES')
+    return args.includes('-c') ? available : finishScan(args)
+  })
+  assert.equal(result.status, 'done', result.error)
 })
 
 test('Windows scan preserves a scanner failure once Python is selected', async (t) => {

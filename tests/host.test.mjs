@@ -136,6 +136,8 @@ test('pruneReport drops cleaned rows and keeps partially cleaned groups', () => 
   const pruned = plugin.pruneReport(report, new Set(['/x/a1', '/x/b1', '/x/c1', '/x/br', '/x/ac1', '/x/s1']))
   assert.deepEqual(pruned.leftoverGroups.map((g) => g.baseId), ['b'], 'fully cleaned group removed')
   assert.deepEqual(pruned.leftoverGroups[0].paths, ['/x/b2'], 'partially cleaned group keeps remaining paths')
+  assert.equal(pruned.leftoverGroups[0].kbIncomplete, true)
+  assert.equal(plugin.cleanAnnotations(pruned, ['/x/b2']).get('/x/b2').kb, null)
   assert.deepEqual(pruned.caches.map((c) => c.path), ['/x/c2'])
   assert.equal(pruned.devCaches.length, 1)
   assert.equal(pruned.browsers.length, 0)
@@ -175,7 +177,52 @@ test('permissions endpoint responds with a structured status', { skip: process.p
   const { code, body } = await call('/permissions')
   assert.equal(code, 200)
   assert.match(body.text, /权限检查/)
-  assert.ok(['ok', 'denied'].includes(body.status), 'status is derived from the scanner exit code')
+  assert.ok(['ok', 'denied'].includes(body.status))
+  if (process.platform === 'darwin') {
+    assert.equal(body.fda.status, 'unknown', 'an empty test home has no protected paths to probe')
+    assert.ok(body.fda.revision > 0)
+  }
+})
+
+test('macOS distinguishes a scanner-reported permission denial from an unrelated exit 2', {
+  skip: process.platform !== 'darwin',
+}, async (t) => {
+  const bin = fs.mkdtempSync(path.join(root, 'fda-test-'))
+  const python = path.join(bin, 'python3')
+  const oldPath = process.env.PATH
+  process.env.PATH = bin + path.delimiter + oldPath
+  t.after(() => {
+    process.env.PATH = oldPath
+    fs.rmSync(bin, { recursive: true, force: true })
+  })
+  for (const denied of [false, true]) {
+    fs.writeFileSync(python, denied
+      ? "#!/bin/sh\nprintf '%s\\n' 'DEEPCLEAN_FDA denied' >&2\nprintf '%s\\n' 'permission denied'\nexit 2\n"
+      : "#!/bin/sh\nprintf '%s\\n' 'python3: cannot open scanner script' >&2\nexit 2\n", { mode: 0o700 })
+    const check = await call('/permissions')
+    assert.equal(check.body.code, 2)
+    assert.equal(check.code, denied ? 200 : 500)
+    assert.equal(check.body.fda?.status, denied ? 'denied' : undefined)
+
+    assert.equal((await call('/scan', 'POST', '{}')).code, 202)
+    const laterCheck = denied ? await call('/permissions') : null
+    let scan
+    for (let i = 0; i < 50; i++) {
+      scan = (await call('/scan')).body.scan
+      if (scan.status !== 'running') break
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.equal(scan.status, 'error')
+    assert.equal(scan.errorCode, denied ? 'full_disk_access_required' : '')
+    if (denied) {
+      assert.equal(scan.fda.status, 'denied')
+      assert.ok(scan.fda.revision > check.body.fda.revision)
+      assert.ok(scan.fda.revision < laterCheck.body.fda.revision)
+    } else {
+      assert.equal(scan.fda, null)
+      assert.match(scan.error, /cannot open scanner script/)
+    }
+  }
 })
 
 test('open-privacy-settings is POST-only, darwin-only and dry-runnable', async () => {
@@ -639,6 +686,9 @@ test('restore reports a conflict honestly and can restore the batch as a copy', 
   assert.equal(copy.body.results[0].renamed,true)
   assert.equal(fs.readFileSync(copy.body.results[0].restoredTo,'utf8'),'OLDER')
   assert.equal(fs.readFileSync(from,'utf8'),'NEWER')
+  const completed = (await call('/history')).body.cleans.find(b => b.batchId === 'conflict')
+  assert.equal(completed.items[0].restoredTo, copy.body.results[0].restoredTo)
+  assert.equal(completed.restorable, 0)
 })
 
 test('reclaim estimates logical and allocated bytes', async () => {
@@ -668,6 +718,43 @@ test('purge permanently deletes a batch moved into the quarantine trash', async 
   assert.equal(batch.items[0].deleted, true)
   assert.ok(Number.isFinite(Date.parse(batch.items[0].deletedAt)))
   assert.equal(batch.items[0].exists, false)
+
+  // Legacy records have no identity. A replacement at the same path is not part of the batch.
+  fs.mkdirSync(trashDir, { recursive: true })
+  fs.writeFileSync(item, 'replacement')
+  const replayed = (await call('/history')).body.cleans.find(b => b.batchId === 'testbatch')
+  assert.equal(replayed.restorable, 0)
+  assert.equal(replayed.items[0].exists, false)
+  const payload = JSON.stringify({ batchId: 'testbatch' })
+  assert.equal((await call('/restore', 'POST', payload)).code, 409)
+  assert.equal((await call('/purge', 'POST', payload)).code, 409)
+  assert.equal((await call('/quarantine/purge', 'POST', JSON.stringify({ batchIds: ['testbatch'] }))).code, 400)
+  assert.equal(fs.readFileSync(item, 'utf8'), 'replacement')
+  fs.rmSync(trashDir, { recursive: true })
+})
+
+test('history keeps unsuccessful purge items eligible for retry', async () => {
+  const batchId = 'partial-purge'
+  const trashDir = path.join(process.env.DEEPCLEAN_TRASH_DIR, 'deepclean-' + batchId)
+  fs.mkdirSync(trashDir, { recursive: true })
+  const deleted = { from: path.join(root, 'deleted-original'), to: path.join(trashDir, 'deleted') }
+  const retry = { from: path.join(root, 'retry-original'), to: path.join(trashDir, 'retry') }
+  fs.writeFileSync(deleted.to, 'replacement')
+  fs.writeFileSync(retry.to, 'original')
+  const entries = [
+    { action: 'clean', batchId, moved: [deleted, retry] },
+    { action: 'purge', batchId, results: [{ ...deleted, ok: true }, { ...retry, ok: false }] },
+  ]
+  fs.appendFileSync(path.join(process.env.DSH_HOME, 'deepclean-audit.log'), entries.map(e => JSON.stringify(e)).join('\n') + '\n')
+  const batch = (await call('/history')).body.cleans.find(b => b.batchId === batchId)
+  assert.equal(batch.restorable, 1)
+  const { code, body } = await call('/quarantine/purge', 'POST', JSON.stringify({ batchIds: [batchId] }))
+  assert.equal(code, 200)
+  assert.equal(body.total.purged, 1)
+  assert.deepEqual(body.results.map(r => r.from), [retry.from])
+  assert.equal(fs.readFileSync(deleted.to, 'utf8'), 'replacement')
+  assert.equal(fs.existsSync(retry.to), false)
+  fs.rmSync(trashDir, { recursive: true })
 })
 
 
@@ -871,10 +958,14 @@ test('cleanAnnotations records report sizes but never widens the allow-set', () 
   }
   const map = plugin.cleanAnnotations(report, ['/x/a2', '/x/c1', '/x/d1', '/x/b1', '/x/p2', '/x/s1', '/not/selected'])
   assert.deepEqual([...map.keys()].sort(), ['/x/a2', '/x/b1', '/x/c1', '/x/d1', '/x/p2', '/x/s1'])
-  assert.equal(map.get('/x/a2').kb, 100, 'a grouped row is attributed once, to the selected path')
+  assert.equal(map.get('/x/a2').kb, null, 'a group total does not describe a selected member')
   assert.equal(map.get('/x/a2').category, 'leftover')
   assert.equal(map.get('/x/c1').kb, 5)
   assert.equal(map.get('/x/s1').kb, 13)
+  assert.equal(map.get('/x/s1').kbScope, 'path')
+  assert.deepEqual([...plugin.cleanAnnotations(report, ['/x/a1', '/x/a2']).values()], [
+    { kb: null, category: 'leftover' }, { kb: null, category: 'leftover' },
+  ])
   assert.equal(plugin.cleanAnnotations(report, []).size, 0)
   assert.equal(plugin.cleanAnnotations(null, ['/x/c1']).size, 0)
   // The mapping is audit metadata only: it must not appear in the clean allow-set.

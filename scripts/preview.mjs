@@ -10,6 +10,7 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { previewReport } from '../tests/fixtures/preview-report.mjs'
+import { softwareInventory } from '../tests/fixtures/software-inventory.mjs'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const require = createRequire(path.join(root, 'package.json'))
 const domRequire = createRequire(require.resolve('react-dom/client'))
@@ -20,7 +21,10 @@ const disk = () => ({ ...previewReport().disk, mount: '/demo', at: Date.now() })
 const permissionDenied = process.env.DEEPCLEAN_PREVIEW_FDA === 'denied'
 const pythonMissing = process.env.DEEPCLEAN_PREVIEW_PYTHON === 'missing'
 const pythonError = { errorCode: 'python_unavailable', error: '示例环境：找不到可用的 Python 3' }
+let fdaRevision = 0
 let state
+let software = { items: [], sources: [], jobs: [], at: 0, token: 'preview-software' }
+let softwarePlans = new Map()
 function reset(data, expired = false) {
   const now = Date.now()
   const history = data ? [
@@ -54,10 +58,10 @@ function updateScan() {
     return
   }
   if (permissionDenied) {
-    state.scan = { status: 'error', progress: 0, errorCode: 'full_disk_access_required', error: '示例环境：完全磁盘访问权限未授权' }
+    state.scan = { status: 'error', progress: 0, errorCode: 'full_disk_access_required', error: '示例环境：完全磁盘访问权限未授权', fda: { status: 'denied', revision: state.scanFdaRevision } }
     return
   }
-  if (elapsed > 3000) { state.report = previewReport(); state.at = Date.now(); state.scan = { status: 'done', full: true, progress: 100, elapsed: 3, stage: '完成' } }
+  if (elapsed > 3000) { state.report = previewReport(); state.at = Date.now(); state.scan = { status: 'done', full: true, progress: 100, elapsed: 3, stage: '完成', fda: { status: 'granted', revision: state.scanFdaRevision } } }
   else state.scan = { status: 'running', progress: Math.min(95, Math.round(elapsed / 32)), elapsed: Math.floor(elapsed / 1000), stage: '扫描开发缓存' }
 }
 const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>DeepClean · 示例数据预览</title><style>html,body,#root{height:100%;margin:0}body{background:#fff}</style></head><body><div id="root"></div><script src="/runtime.js"></script><script>window.__ModuleLoader__={load(def){window.panelDefinition=def}};window.__previewErrors=[];window.addEventListener('error',e=>window.__previewErrors.push(e.message));window.addEventListener('unhandledrejection',e=>window.__previewErrors.push(String(e.reason)));</script><script src="/client.js"></script><script>(async()=>{const q=new URLSearchParams(location.search);await fetch('/__preview/reset?data='+q.get('data')+'&expired='+q.get('expired'));const React=require('react'),mod=window.panelDefinition.factory(require);let Panel;window.__previewAiPrompts=[];const previewAi={available:true,ask:async(text)=>{if(q.get('ai')==='no-session')return 'no-session';window.__previewAiPrompts.push(text);console.log('[preview AI prompt]\\n'+text);return 'sent'}};mod.apply({slots:{inject(_n,cb){cb()},register(spec,comp){if(spec.name==='main')Panel=comp;return()=>{}}}});require('react-dom/client').createRoot(document.getElementById('root')).render(React.createElement(Panel,{ai:previewAi}));})();</script></body></html>`
@@ -104,6 +108,31 @@ const server = http.createServer(async (req, res) => {
     const api = url.pathname.replace('/dsh-deepclean/api', '')
     if (req.method !== 'GET') state.requests.push({ api, body })
     updateScan()
+    if (api === '/software') return json(software)
+    if (api === '/software/open') return json({ ok: true })
+    if (api === '/software/scan') { software = { ...software, ...softwareInventory() }; return json(software, 202) }
+    if (api === '/software/plan') {
+      const item = software.items.find(i => i.id === body.itemId)
+      if (!item || !item.executable) return json({ error: 'not_found' }, 409)
+      const plan = { id: 'plan-' + Date.now(), item, expiresAt: Date.now() + 600000, size: { bytes: 38 * 1024 ** 2, partial: false }, reversible: item.action === 'move-app' }
+      softwarePlans.set(plan.id, plan)
+      return json(plan)
+    }
+    if (api === '/software/execute') {
+      const plan = softwarePlans.get(body.planId)
+      if (!plan || body.confirmed !== true) return json({ error: 'plan_missing' }, 409)
+      if (software.active) return json({ error: 'busy' }, 409)
+      softwarePlans.delete(plan.id)
+      const job = { id: 'job-' + Date.now(), item: plan.item, status: 'running', startedAt: Date.now() }
+      software.jobs.unshift(job); software.active = job.id
+      setTimeout(() => {
+        job.status = process.env.DEEPCLEAN_PREVIEW_SOFTWARE === 'failed' ? 'failed' : 'completed'
+        if (job.status === 'completed') software.items = software.items.filter(i => i.id !== job.item.id)
+        else job.error = 'still_installed'
+        software.active = null; job.finishedAt = Date.now()
+      }, 1800)
+      return json(job, 202)
+    }
     if (api === '/overview') return json({ at: state.at, report: state.report, disk: disk(), scan: state.scan, whitelist: state.whitelist, platform: pythonMissing ? 'win32' : 'darwin', history: state.history, cleanBatches: state.batches, quarantine: quarantine() })
     if (api === '/quarantine') return json(quarantine())
     if (api === '/reclaim') { const n = (body.paths || []).length; return json({ logicalBytes: n * 104857600, allocatedBytes: n * 100663296, files: n * 12, truncated: false, snapshots: 2 }) }
@@ -117,14 +146,15 @@ const server = http.createServer(async (req, res) => {
     }
     if (api === '/disk') return json({ disk: disk() })
     if (api === '/state') { const ids = state.batches.filter(b => b.restorable > 0).map(b => b.batchId); return json({ canUndo: ids.length > 0, lastBatchId: ids[ids.length - 1] || null, lastBatchIds: ids }) }
-    if (api === '/scan' && req.method === 'POST') { state.startedAt = Date.now(); state.scan = { status: 'running', progress: 0, full: !!body.full }; return json({ scan: state.scan }) }
+    if (api === '/scan' && req.method === 'POST') { state.startedAt = Date.now(); state.scanFdaRevision = ++fdaRevision; state.scan = { status: 'running', progress: 0, full: !!body.full }; return json({ scan: state.scan }) }
     if (api === '/scan') return json({ scan: state.scan })
     if (api === '/scan/cancel') { state.scan = { status: 'canceled', progress: 0 }; return json({ scan: state.scan }) }
     if (api === '/permissions') {
       if (pythonMissing) return json(pythonError, 500)
-      return json(permissionDenied
+      const result = permissionDenied
         ? { code: 2, status: 'denied', text: '权限检查：macOS 完全磁盘访问 = **未授权**（示例环境模拟）\n\n1. 打开「系统设置」→「隐私与安全性」→「完全磁盘访问权限」\n2. 点「+」添加 DeepSeek Harness（或打开已有开关）\n3. 完全退出并重新打开 DeepSeek Harness' }
-        : { code: 0, status: 'ok', text: '示例环境：权限检查通过' })
+        : { code: 0, status: 'ok', text: '示例环境：权限检查通过' }
+      return json({ ...result, fda: { status: permissionDenied ? 'denied' : 'granted', revision: ++fdaRevision } })
     }
     if (api === '/open-privacy-settings') return json({ ok: true })
     if (api === '/clean') {

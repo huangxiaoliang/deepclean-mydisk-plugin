@@ -2,15 +2,16 @@
 
 ## 是什么
 DSH 插件：原生侧边栏磁盘空间工具（macOS / Windows），只读体检 + 空间可视化 + 相似照片 + 微信/企微/QQ 专清 + 跨盘搬家 + 可撤销清理 + AI 只读解释。
-**只移动、不删除**；AI 只解释、不执行；浏览器端是手写 bundle，**没有构建步骤**。
+**缓存与残留清理先移动、可恢复**。软件卸载单独授权，可调用系统或原包管理器。AI 只解释、不执行；浏览器端是手写 bundle，**没有构建步骤**。
 
 ## 结构
 
 ### 宿主（`lib/`）
 | 文件 | 职责 |
 |---|---|
-| `lib/index.js` | host 入口：**5 个只读模型工具**（`disk_check_permissions` / `disk_audit` / `disk_report` / `disk_inspect` / `disk_self_test`）+ **28 条 HTTP 路由**（含仅 macOS 的 `POST /api/open-privacy-settings`，用于打开「完全磁盘访问」设置）+ `scan`/`photos`/`move` 三个状态机 + 平台分支；`pruneReport` 在清理成功后增量剪枝内存报告（连续清理不重扫）；`cleanAnnotations` 只给审计记录补「清理时报告里的大小/分类」，不参与放行；`/api/clean` 超过 200 项时由 `splitBatches` 服务端分片（返回 `batchIds`），照片清理后 `prunePhotoResult` 剪枝；`/api/quarantine` 汇总隔离区，`/api/quarantine/purge` 是两阶段释放的第二阶段；`cloudRoots`/`isCloudBackedPath`/`moveBlockReason` 保护云盘与 App 数据目录；`disk_audit` 默认脱敏、输出附 `itemId` 并把工具体检报告单独存为 `toolReport`（只供 `disk_inspect`，绝不进入清理允许集合）；`disk_report` 只读面板最近报告、不触发扫描 |
+| `lib/index.js` | host 入口：**5 个只读模型工具**（`disk_check_permissions` / `disk_audit` / `disk_report` / `disk_inspect` / `disk_self_test`）+ **34 条 HTTP 路由**（含仅 macOS 的 `POST /api/open-privacy-settings`，用于打开「完全磁盘访问」设置）+ `scan`/`photos`/`move` 三个状态机 + 平台分支；`pruneReport` 在清理成功后增量剪枝内存报告（连续清理不重扫）；`cleanAnnotations` 只给审计记录补「清理时报告里的大小/分类」，不参与放行；`/api/clean` 超过 200 项时由 `splitBatches` 服务端分片（返回 `batchIds`），照片清理后 `prunePhotoResult` 剪枝；`/api/quarantine` 汇总隔离区，`/api/quarantine/purge` 是两阶段释放的第二阶段；`cloudRoots`/`isCloudBackedPath`/`moveBlockReason` 保护云盘与 App 数据目录；`disk_audit` 默认脱敏、输出附 `itemId` 并把工具体检报告单独存为 `toolReport`（只供 `disk_inspect`，绝不进入清理允许集合）；`disk_report` 只读面板最近报告、不触发扫描 |
 | `lib/clean.js` | **唯一移动用户文件的地方**：`moveToTrash` / `restoreMoved` / `undoBatch` / `purgeMoved`、废纸篓路径、审计日志（超 5MB 自动轮转，保留近期记录与所有待恢复批次依据（活跃批次多时可超过阈值），`DEEPCLEAN_AUDIT_MAX_BYTES` 可覆盖）、单批上限 200；`moveToTrash(paths, allowed, { annotations })` 的 annotations 只写进审计（旧日志无此字段）；`restoreMoved(moved, batchId, { onConflict, recreateParents })` 返回 `{ results, auditOk }`，逐项带 `code`（`exists`/`notfound`/`changed`/`eacces`/`exdev`/`symlink`/`io`）；`quarantineRoot`/`quarantineSummary` 只读统计本插件批次占用；`purgeMoved` 删完会收掉空批次目录并返回 `auditOk` |
+| `lib/software.js` / `lib/software-discovery.js` | 软件实例清单、卸载计划、任务与核验。修改来源识别、执行、恢复、接口或覆盖范围前读 [软件卸载实施契约](docs/design/software-uninstall.md)；真实卸载从 `lib/index.js` 发起。 |
 | `lib/platform.js` | 宿主侧白名单二次校验 `isProtected`（win32 用 `path.win32` 语义）；`parseTreeOutput` 目前只被测试引用 |
 | `lib/client.js` | 浏览器端单文件 bundle（`window.__ModuleLoader__.load`，内嵌 CSS / SVG / Phosphor 图标，无构建）；含 **AI 只读解释入口**：体检解读、逐项「问 AI / 解释这一项」、清理前「复核这 n 项」、大文件「这是什么」、失败/降级诊断、历史趋势。提示词只拼面板已算好的报告/行/历史数据，经 `sessions.binding(id).session.prompt(..., 'queue')` 注入当前会话，**读不到模型回复**；会话服务缺失或没有打开的会话时降级为复制提示词 |
 
@@ -22,6 +23,7 @@ DSH 插件：原生侧边栏磁盘空间工具（macOS / Windows），只读体�
 | `resources/scripts/platforms/windows.py` | Windows 只读扫描（注册表已装程序、缓存与残留、UWP、OneDrive、浏览器缓存多 profile + `running` 标记、大文件；预算 120s；7 项自检）；残留经 `classify_leftover` 分档，**confirm 残留里的缓存子目录同样经 `cache_subdirs`/`apply_leftover_cache_split` 拆成 safe 组**（`cachePart: true`）；产出与 macOS 同契约的 `leftoverGroups`/`cloudStorage`/`browsers`/`estimate` |
 | `resources/scripts/photos.py` | 相似照片 dHash 指纹与分组（macOS `sips`；Windows 走 PowerShell 批量解码）；跳过云盘目录/云占位文件与 App 包目录，结果带 `skippedCloud`/`skippedPackages` |
 | `resources/scripts/photos-windows.ps1` | Windows `.NET` 指纹 / 缩略图解码，**不依赖 Pillow**；只写显式指定的临时 JPEG |
+| `resources/scripts/software-macos.py` / `software-windows.ps1` | 软件实例**只读**清单：macOS 读 App 包 `Info.plist`（跳过符号链接、系统 App、运行中与含后台服务的包），Windows 读注册表 Uninstall 键、当前用户 Appx 并定位 `winget.exe`；**只查询，不执行 `UninstallString`**，卸载由 `lib/index.js` 的执行入口发起 |
 | `resources/scripts/tree.py` | 空间页目录统计：单趟后序遍历产出根清单 + `dirs` 各层缓存播种（≥10MB 子树、上限 500）+ 每层 `bigFiles` 堆（≥1MB，根 top 50 / 子目录 top 20，`bigFilesCap` 随响应返回）；含隐藏项，返回 `partial`/`unavailable`/`skipped`/`skippedCloud`/`cloudFiles`/`sharedFiles`/`sharedDupKb`/`metric`；不跟随链接与 Windows 重解析点；**云盘目录与 App 包目录仍计入大小，但不进 `bigFiles`/`dirs`**（防止被搬家/去重选中）；云盘占位文件先按云占位归类、不算「链接」；同一 inode 的硬链接只计一次大小、只进一条 `bigFiles`（重复项 `dedup:true`）；Windows >260 字符路径用 `\\?\` 访问；云盘/AppData 根预归一化，遍历内不再逐条 `realpath`；云盘根可用 `DEEPCLEAN_CLOUD_ROOTS` 注入 |
 | `resources/rules.json` | macOS 分类规则（thresholds / knownNames / denyPaths 等） |
 | `resources/images/disk.png` | 首页插画，**只经固定路由** `/dsh-deepclean/assets/disk.png` 暴露 |
@@ -113,14 +115,14 @@ node scripts/preview.mjs                                    # http://127.0.0.1:4
 ## 常见陷阱
 - **没有构建步骤**：`lib/client.js` 是手写 bundle（CSS 内联在 `<style>` 字符串、图标是内嵌 SVG data URI）。不要引入 JSX / 打包器 / 运行时 CDN。
 - 新增静态资源必须同时加宿主**固定路由**（参考 `assets/disk.png`），不要暴露任意文件路径。
-- 写操作只能出现在 `lib/clean.js` 与 `lib/index.js` 的清理/搬家入口；`lib/client.js` 只调 HTTP API，**不做任何文件写操作**；AI 入口只是往会话里发一段提示词（`session.prompt(..., 'queue')`），不碰文件。
+- 文件移动、清理和软件执行走 `lib/clean.js` / `lib/index.js`；`lib/software.js` 只写自己的任务记录。软件实例不进入普通清理的 `allowedPaths()`。`lib/client.js` 只调 HTTP API，**不做任何文件写操作**；AI 入口只是往会话里发一段提示词（`session.prompt(..., 'queue')`），不碰文件。
 - 修改 `lib/index.js` 或 `lib/client.js` 后**必须重启 DSH**（`link:` 挂载，宿主进程内加载）。
 - 扫描是**后台子进程**：`POST /scan` 立即 202，客户端 900ms 轮询 `GET /scan`；进度条按经验时长插值（28s / 45s），不是实测耗时，UI 进度与实际进度可能不同步。
 - `/api/report` 的 GET 有副作用：除 `cached=1` 外都会**启动扫描**并返回 202；客户端已不再调用它，改由 `/api/scan`。
 - `/api/tree` 走 `tree.py` + 60s 缓存（2000 条 LRU）；播种时先写子目录、最后写目标，且容量大于单次可播种的 500 层，目标不会被自己的 `dirs` 挤出；命中时刷新 LRU 顺序；子树刷新会同步修正父级缓存行的大小；客户端断开连接会通过 `AbortSignal` 杀掉 `tree.py`（`停止加载`）；错误带稳定 `errorCode`（`tree_missing`/`tree_denied`/`tree_outside`/`tree_symlink`/`tree_timeout`/`tree_failed`）供中英文界面本地化；使用独立子进程句柄，浏览目录**不会**取消正在进行的扫描。
 - **AI 是单向投递**：只能把提示词排入当前会话，读不到模型回复；不要设计依赖模型输出的自动勾选、自动清理或结构化回填。
 - 新增/修改 AI 入口时必须复用 `lib/client.js` 的 `untrustedText` / `safeDisplayPath` / `aiRules`，中英文规则成对修改；不得给模型新增写工具，也不得把 `prompt` 结果用于 `allowedPaths` / `isProtected` / 新鲜度判断。
-- 测试按平台跳过：共 **206** 个用例；macOS 跳 2 个 Windows 专用 HTTP 用例（`tests/host.test.mjs` 的 Windows tree / thumbnail），实测 **204 pass / 2 skip**；Windows 跳 7 个 macOS / 非 Windows 宿主专用用例（3 个 symlink 清理/恢复、1 个跨盘复制链接、tree 拒家目录外、permissions、`--platform windows` 拒绝用例），实测 **199 pass / 7 skip**。CI 两端都会跑全量。
+- 测试按平台跳过：共 **241** 个用例；macOS 跳 2 个 Windows 专用 HTTP 用例（`tests/host.test.mjs` 的 Windows tree / thumbnail），实测 **239 pass / 2 skip**；Windows 跳 8 个 macOS / 非 Windows 宿主专用用例（3 个 symlink 清理/恢复、1 个跨盘复制链接、tree 拒家目录外、permissions、`--platform windows` 拒绝用例、macOS 扫描器权限降级），实测 **233 pass / 8 skip**（以 Windows CI 为准）。CI 两端都会跑全量。
 - 换行统一 **LF**（`.gitattributes` 的 `* text=auto eol=lf`）：页面测试用源码字符串替换注入视图，CRLF checkout 会让断言失配；不要改该文件或改用会转 CRLF 的克隆配置。
 
 ## 已知缺口（改代码前先看，均为代码事实）
@@ -136,6 +138,7 @@ node scripts/preview.mjs                                    # http://127.0.0.1:4
 10. **Windows 无 VSS/回收站提示**：永久删除后可用空间可能因卷影副本滞后，UI 暂只对 macOS 提示 APFS 快照。
 11. **AI 只有单向投递**：`session.prompt` 只返回是否受理（插件只消费 `ok`），读不到模型正文，所以没有结构化输出、计划回填或自动评测；提示词只带报告摘要（各档前 6 项、大文件前 6 项、复核最多 30 行），问更细的条目用逐项「问 AI」。AI 提示词/能力的取舍见 `docs/llm-opportunities.md`。
 12. **Windows 的聊天专项 `special` 未实现**：微信/企业微信/QQ 的 `special` 分类只在 macOS 扫描器生成；Windows 报告没有该数组（`appCaches` 同样仍为空）。
+13. **Windows 软件原生卸载未真机验收**：MSI / Appx / WinGet 便携包分支只有合成输出与 `tests/software-*.test.mjs` 覆盖；`scripts/acceptance-windows.ps1` 与 `.github/workflows/windows-acceptance.yml` 尚无软件用例，Homebrew / pipx 卸载也缺原生临时安装回归（见 [软件卸载实施契约](docs/design/software-uninstall.md) 的「验收记录」）。
 
 ## 独立性与同步
 - 本仓库是独立项目，**不依赖** deepclean-mydisk skill 仓库；
