@@ -26,7 +26,7 @@ python3 tests/tree-regressions.py                     # 动了 tree.py 才需要
 ```
 
 - 只改 `.md` 不用跑测试。
-- macOS 上 `npm test` 是 **241 用例 / 239 pass / 2 skip**；2 个 skip 是 Windows 专用 HTTP 用例（`tests/host.test.mjs` 里 `skip: process.platform !== 'win32'`），属于预期，不要删改断言来「修绿」；Windows 上是 **233 pass / 8 skip**（跳过 8 个 macOS / 非 Windows 宿主专用用例，以 Windows CI 实测为准）。
+- macOS 上 `npm test` 是 **314 用例 / 312 pass / 2 skip**；2 个 skip 是 Windows 专用 HTTP 用例（`tests/host.test.mjs` 里 `skip: process.platform !== 'win32'`），属于预期，不要删改断言来「修绿」；Windows 上按 314 总数应为 **305 pass / 9 skip**（跳过 9 个 macOS / 非 Windows 宿主专用用例，以 Windows CI 实测为准）。
 - 改 `lib/client.js` 的界面后，用 `node scripts/preview.mjs`（127.0.0.1:4173，宿主 API 全 mock、路径虚构在 `/demo`）人工确认；预览不碰真实磁盘。
 - 提交前 `git diff` 自查：不能包含 `report.md` / `report.json` / `acceptance-report/` / `__pycache__` 等产物。
 
@@ -52,7 +52,7 @@ python3 tests/tree-regressions.py                     # 动了 tree.py 才需要
 
 ## AI 辅助（只读）改动约定
 
-- AI 入口全部在 `lib/client.js`（`aiReportPrompt` / `aiItemPrompt` / `aiReviewPrompt` / `aiInspectPrompt` / `aiFailurePrompt` / `aiHistoryPrompt`）；数据只来自面板已算好的报告、行集合与历史，宿主侧只读工具 `disk_report` / `disk_inspect` 读取同一份内存报告。
+- AI 入口全部在 `lib/client.js`（`aiReportPrompt` / `aiItemPrompt` / `aiReviewPrompt` / `aiInspectPrompt` / `aiFailurePrompt` / `aiHistoryPrompt` / `aiSoftwarePrompt`）；数据只来自面板已算好的报告、行集合与历史，宿主侧只读工具 `disk_report` / `disk_inspect` 读取同一份内存报告。
 - 提示词必须复用 `untrustedText`（NFKC、去控制字符/换行/定向符、围栏防伪）与 `safeDisplayPath`（默认不发完整绝对路径）；中英文 `aiRules` 成对修改。
 - 不得给模型新增写工具、自动勾选或自动执行；模型输出不得进入 `allowedPaths` / `isProtected` / 新鲜度判断。当前实现读不到模型回复（`session.prompt` 只消费 `ok`），不要假设有结构化返回通道。
 - `disk_audit` 的工具体检报告只存 `toolReport`，只供 `disk_inspect`；`disk_report` 只读面板最近报告、不重扫。

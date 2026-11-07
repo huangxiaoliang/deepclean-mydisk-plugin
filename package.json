@@ -28,7 +28,9 @@
     "LICENSE",
     "locale/*.json",
     "docs/plugin",
-    "assets/icon-180.png"
+    "assets/icon-180.png",
+    "!**/__pycache__",
+    "!**/*.pyc"
   ],
   "dsh": {
     "bundle": {

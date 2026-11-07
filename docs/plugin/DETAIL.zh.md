@@ -24,7 +24,9 @@ DeepClean MyDisk 是 macOS / Windows 上的 DSH 磁盘插件：先做**只读**�
 
 **只读模型工具。** 共 5 个：`disk_check_permissions`、`disk_audit`、`disk_report`、`disk_inspect`、`disk_self_test`。`disk_audit` 会启动一次扫描；`disk_report` 只读面板最近报告、不触发扫描；`disk_inspect` 按 `itemId` 或报告覆盖的路径检查单个条目。它们都不能清理、移动或删除文件。
 
-**AI 辅助（只读）。** 你可以让 AI 解读体检结果、逐项解释清理条目、在清理前复核已勾选集合、判断大文件是什么、诊断失败原因，或分析历史空间趋势。AI 只负责解释，不能勾选、清理、移动或删除；提示词只带面板已经算好的脱敏数据，模型输出也不会改变分档或允许集合。
+**插件更新。** 面板打开时会通过 DSH 官方插件管理服务检查是否有兼容的新版本；有可用新版本时标题右侧出现「更新插件」，确认后由 DSH 插件管理执行更新，完成后重启 DSH 生效。检测不额外访问外部网站；本地开发目录（`link:`）安装不支持自动更新，设置页会说明当前状态。
+
+**AI 辅助（只读）。** 你可以让 AI 解读体检结果、逐项解释清理条目、在清理前复核已勾选集合、判断大文件是什么、诊断失败原因、分析历史空间趋势，或解释软件不能卸载的原因、卸载计划的影响与卸载结果。AI 只负责解释，不能勾选、清理、移动、卸载或删除；提示词只带面板已经算好的脱敏数据，模型输出也不会改变分档或允许集合。
 
 ## 安全模型
 
@@ -37,6 +39,7 @@ DeepClean MyDisk 是 macOS / Windows 上的 DSH 磁盘插件：先做**只读**�
 - macOS：需要「完全磁盘访问」与 `python3`；扫描器使用系统自带的 `du`、`plutil`、`sips` 等工具。
 - Windows：需要 Python 3.9 或更新版本（`py -3`、`python` 或 `python3`）；照片解码使用 PowerShell；部分系统目录需要管理员权限。
 - DSH 0.2.x（≥0.2.1-rc.5，<0.3.0）。Linux 未验收。
+- 插件更新只支持从 registry 安装的版本；`link:` 本地开发安装不会显示顶部更新按钮。
 
 ## 安装
 
@@ -50,6 +53,7 @@ dsh plugin add deepclean-mydisk
 
 ## 反馈与支持
 
+- 面板「设置 → 反馈与联系」提供邮箱、微信与 GitHub 仓库地址，以及打开仓库页的 Star 入口（Star 需在 GitHub 登录后手动点）。
 - 遇到 Bug 或有使用问题，请开 [GitHub Issue](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/issues/new/choose)。
 - 安全问题（越权删除、路径逃逸、恢复失败、隐私泄露等）请勿公开，发邮件到 **coolway.me@gmail.com**，说明版本、复现与影响。
 - 提交前请先重启 DSH，并附上插件版本、DSH 版本、系统版本、错误码/失败阶段与已脱敏的日志或截图；审计日志在 `$DSH_HOME/deepclean-audit.log`。

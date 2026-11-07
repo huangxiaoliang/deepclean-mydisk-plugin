@@ -1,5 +1,21 @@
 # deepclean-mydisk 插件变更
 
+## 未发布
+- 软件页：清单从按哈希排序改为「可处理项在前、按名称排序；暂不能处理的收进折叠分区并按原因分组」（运行中 / 官方卸载器 / 依赖 / 归属冲突 / 受保护等，组头带计数），预览夹具补充运行中与官方卸载器示例
+- AI 辅助（只读）：软件页新增三个解释入口——不可卸载条目「问 AI 为什么不能卸载」、卸载计划「让 AI 解释这些影响」、操作记录「AI 解释这次结果」；提示词只带脱敏条目元数据与程序判定的枚举状态（`blockReason` / `warnings` / job 状态与错误码），不发送卸载命令与完整路径，规则禁止输出命令与绕过程序判定
+- 插件更新：面板打开时通过 DSH 官方插件管理服务检查是否存在兼容新版本；有更新时标题「DeepClean MyDisk」右侧显示「更新插件」，确认后由插件管理执行更新并提示重启 DSH；设置页可查看当前/可用版本与上次检查时间并手动「检查更新」。检测结果在宿主内存缓存 6 小时，失败静默；只有正式版、声明 DSH bundle 且与当前 DSH 兼容的版本会被推荐
+- 新增两条宿主路由：`GET /api/update-check`、`POST /api/update`（同源 + 回环 + 自定义头校验，更新入口可选依赖 `pluginManager` 服务）；`link:` 本地开发安装会被官方判定为 not-updatable，只显示设置页状态
+- 隔离预览新增 `?update=available|none|link|error`、`?dialog=1`、`?view=settings` 三种更新状态与入口预览；新增 `tests/update.test.mjs` 宿主回归与页面渲染/英文文案断言
+- 设置页：修正环境信息（平台显示 macOS/Windows、Windows 权限显示不适用、隔离区/废纸篓按平台选词并区分本插件占用）、安全说明措辞与保护名单绝对路径校验；新增「反馈与联系」（邮箱、微信复制、GitHub 仓库、打开仓库页的 Star 入口，不代点 Star）
+- 安全（P0）：插件注册的面板 HTTP 路由此前**不受宿主鉴权保护**（实测未登录可读 `/api/overview` 的全部绝对路径、可 POST `/api/clean`）。现在所有面板路由先过 `panelRequestRejection`：优先复用宿主 `connection.requestRejection` 的 Host/Origin 围栏与浏览器登录 cookie，服务缺失时回退回环 Host + `sec-fetch-site` + 自定义头；`/api/thumb` 因 `<img>` 不能加头只做围栏；客户端面板请求统一走 `apiFetch()` 补头
+- 修复（估算口径）：`pruneReport` 清理后按剪枝结果复算 `estimate`（连续清理不重扫时 AI 摘要与 `disk_report` 不再用旧数字），扫描时废纸篓总量标 `trashKbStale` 并在展示时注明「扫描时」；扫描器 `estimate` 同步排除被 UI 更具体条目覆盖的缓存父目录（如被 Chrome 条目覆盖的 `~/Library/Caches/Google`），`allowedPaths` 也不再放行这些隐藏父目录；macOS `estimate` 补齐 `confirmKb` 与 `minLeftoverKb`
+- 修复（运行中检测 fail-closed）：扫描器报告新增 `processSnapshot`；`pgrep`/`tasklist` 快照失败时浏览器/App 缓存一律按运行中处理、卸载残留不再拆分缓存子目录，面板标注「无法确认运行状态，暂不开放清理」，不再静默放行
+- 修复（跨盘搬家）：搬家后恢复源文件 atime/mtime（此前归档文件搬完 mtime 变成当前时刻，按时间筛选全部失真）；Node 无 xattr API，不承诺保留扩展属性。注意 APFS 上 utimes 会重写 birthtime，回滚身份校验已在 utimes 后重新取身份
+- 修复（Windows 云盘判定）：`big_files` 与残留候选改走 `under_cloud`（normcase + 目录边界），`OneDriveBackup` 不再被误判为云盘、大小写不一致不再漏判
+- 修复（撤销入口）：永久删除单批/分片批次后同时清空 `lastBatch` 与 `lastBatchIds`，宿主 `canUndo=false` 时也主动清空，「撤销上次清理」不再点了 404
+- 修复（扫描错误文案）：`POST /api/scan`、`/api/photos/scan` 区分「软件卸载进行中」与「扫描已在进行中」，返回稳定 `errorCode`，客户端中英成对提示去软件页完成核验
+- 测试 314（macOS 312 pass / 2 skip；Windows 按 314 总数应为 305 pass / 9 skip，以 CI 实测为准）
+
 ## 0.13.1 — 2026-11-07
 - 修复（兼容性声明）：`engines.dsh` 与 `@deepseek-ai/dsh-tools` 的 peer 范围补上 0.2.2 预发布分支（`>=0.2.1-rc.5 <0.3.0-0 || >=0.2.2-rc.1 <0.3.0-0`）。此前的单一 0.2.1 分支会让 node-semver **静默排除所有 0.2.2 预发布宿主**，导致插件在 DSH 0.2.2-rc.x 的「插件 → 发现」里被判定为不兼容而隐藏；插件本身在同一宿主上可直接安装并正常运行
 - 实测依据：DSH 0.2.2-rc.1 上 `dsh plugin add deepclean-mydisk@0.13.0` 安装成功，宿主加载后 `/dsh-deepclean/api/disk` 与 `/api/overview` 均正常响应，但 semver 判定为不兼容
