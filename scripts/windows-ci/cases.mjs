@@ -33,7 +33,16 @@ async function host() {
     const route = routes.find(r => r.path === '/dsh-deepclean/api' + endpoint)
     assert.ok(route, endpoint)
     const listeners = {}
-    const req = { method: 'POST', url: route.path, on(e,f) { (listeners[e] ||= []).push(f) }, destroy() {} }
+    // 面板路由要求回环 Host + 自定义头（PANEL_HEADER）；这里模拟真实面板请求，
+    // 否则会被 panelRequestRejection 以 403 request_denied 拒绝。
+    const req = {
+      method: 'POST',
+      url: route.path,
+      headers: { host: '127.0.0.1:4173', 'x-deepclean-ui': 'panel', 'sec-fetch-site': 'same-origin' },
+      socket: { remoteAddress: '127.0.0.1' },
+      on(e,f) { (listeners[e] ||= []).push(f) },
+      destroy() {},
+    }
     const res = { code: 0, body: '', writeHead(c) { this.code = c }, end(b) { this.body = b }, destroy() {} }
     const response = route.handler(req, res)
     for (const f of listeners.data || []) f(Buffer.from(JSON.stringify(body)))
