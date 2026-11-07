@@ -4,6 +4,11 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
+// 真实安装版本随 package.json 发布演进，不要在断言里写死，否则每次改版本号测试都会红。
+const pluginVersion = JSON.parse(
+  fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+).version
+
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dc-update-test-')))
 process.env.HOME = root
 process.env.USERPROFILE = root
@@ -104,7 +109,7 @@ test('update check reports when DSH provides no plugin manager', async () => {
   assert.equal(body.supported, false)
   assert.equal(body.reason, 'manager_unavailable')
   assert.equal(body.updateAvailable, false)
-  assert.equal(body.installedVersion, '0.13.1')
+  assert.equal(body.installedVersion, pluginVersion)
 })
 
 test('update check lists a newer compatible version', async () => {
