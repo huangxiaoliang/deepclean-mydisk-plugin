@@ -37,7 +37,7 @@ try {
   Check "平台为 windows" ($r.platform -eq "windows")
   Check "报告含标题" ($md -match "磁盘体检报告")
   Check "无 del/rd 命令建议" (-not ($md -match '(?m)^\s*del\s|^\s*rd\s'))
-  Check "含 Move-Item 或无需命令" ($md -match "Move-Item" -or $md -match "未生成 mv")
+  Check "含 Move-Item 或无需命令" ($md -match "Move-Item" -or $md -match "无需移动")
   Check "browsers 字段存在" ($r.PSObject.Properties.Name -contains "browsers")
   Check "leftoverGroups 字段存在" ($r.PSObject.Properties.Name -contains "leftoverGroups")
   Check "estimate 字段存在" ($null -ne $r.estimate)

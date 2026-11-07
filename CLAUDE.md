@@ -9,8 +9,9 @@
 ## 先读什么
 
 - 改代码前：`AGENTS.md` 的「结构」「常见陷阱」「已知缺口」三节。
-- 改界面：`README.md`「界面结构」+ `docs/design/README.md` + `design-qa.md`（视觉验收只覆盖浅色首页、清理页与英文窄窗口）。
+- 改界面：`README.md`「界面结构」+ `docs/design/README.md` + `design-qa.md`（视觉验收覆盖浅色首页、清理页、空间页与历史页；含 320/1280 窄宽窗与暗色走查，但完整暗色主题、Windows 真机与无障碍仍未验收）。
 - 改扫描器：`resources/scripts/deepclean.py`（统一入口）、`scan.py`（macOS）、`platforms/windows.py`（Windows）。
+- 改软件页 / 卸载：`AGENTS.md`「结构」+ `lib/software*.js` + `resources/scripts/software-*`，动手前先读 [软件卸载实施契约](docs/design/software-uninstall.md)。
 - 改 AI 入口：`AGENTS.md`「AI 辅助清理」+ `docs/llm-opportunities.md`，重点看提示词安全与「读不到模型回复」的单向投递约束。
 
 ## 验证闭环（每次改动后按顺序执行）
@@ -34,7 +35,8 @@ python3 tests/tree-regressions.py                     # 动了 tree.py 才需要
 
 - 扫描器只读；清理只**移动**、可撤销、不自动删除。废纸篓：macOS `~/.Trash`；Windows `%LOCALAPPDATA%\deepclean-mydisk\trash\<时间戳>`；其他 `~/.local/share/deepclean-mydisk/trash/<时间戳>`；可用 `DEEPCLEAN_TRASH_DIR` 覆盖。
 - 只接受最近 **10 分钟**的扫描结果；「需确认」档永不进入清理允许集合。
-- 白名单在宿主用 `isProtected` **二次校验**（不依赖 UI 勾选）；win32 大小写不敏感并解析 `.` / `..`。
+- 白名单在宿主用 `isProtected` **二次校验**（不依赖 UI 勾选）；win32 大小写不敏感并解析 `.` / `..`；命中保护名单的子路径同时保护其祖先。
+- 软件卸载独立授权：软件实例不进入普通清理的 `allowedPaths()`，真实卸载/移出从 `lib/index.js` 发起，任务记录只写 `$DSH_HOME/deepclean-software-jobs.json`。
 - 符号链接一律拒绝：清理逐条 `lstat`、搬家源逐级祖先、搬家目标、tree 浏览。
 - 跨盘搬家必须复制后 **SHA-256 + 大小**双向校验；失败删除临时文件并保留原文件。搬家允许集合：10 分钟内的体检 `bigFiles` 或目录统计 `bigFiles`。
 - 写用户文件的代码只允许出现在 `lib/clean.js` 与 `lib/index.js` 的清理/搬家入口；`lib/client.js` 只调 HTTP API，不做任何文件写操作。

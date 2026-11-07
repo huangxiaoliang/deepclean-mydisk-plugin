@@ -15,14 +15,14 @@ DSH 市场的插件详情页没有内置的反馈按钮；详情页的「主页�
 
 ## 提交前请先自查
 
-以下命令需要在**插件源码目录**运行（npm / DSH 安装版没有 `resources/` 路径，改用面板「设置 → 权限检查」）：
+以下命令需要在**插件源码目录**运行；从 npm / DSH 安装的版本请直接用面板「设置 → 权限检查」（安装包内也带 `resources/`，但不需要手动运行）：
 
 ```bash
 python3 resources/scripts/deepclean.py --self-test
 python3 resources/scripts/deepclean.py --check-permissions
 ```
 
-- 升级或修改过插件后，**重启 DSH** 再试；
+- 更新或修改过插件后，**重启 DSH** 再试；
 - 权限检查显示未授权「完全磁盘访问」时，扫描结果会明显偏少，先按面板提示授权；
 - Windows 的已知限制（`appCaches` 未实现、聊天软件专项仅 macOS、部分系统目录需要管理员）见
   [README 已知限制](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/README.md#已知限制)。
@@ -30,7 +30,7 @@ python3 resources/scripts/deepclean.py --check-permissions
 ## 提交 Issue 时请附上
 
 - 插件版本（设置页或 `dsh plugin list`）、DSH 版本、操作系统版本；
-- 出问题的功能（体检 / 清理 / 恢复 / 永久删除 / 照片 / 空间 / 搬家 / AI）；
+- 出问题的功能（体检 / 清理 / 恢复 / 永久删除 / 照片 / 空间 / 跨盘移动 / 软件 / AI）；
 - 复现步骤、期望结果、实际结果；
 - UI 显示的错误码或失败阶段（如 `eacces`、`exdev`、`notfound`、`symlink`）；
 - 已脱敏的日志片段或截图。

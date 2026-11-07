@@ -29,18 +29,31 @@ powershell -ExecutionPolicy Bypass -File scripts\acceptance-windows.ps1
 
 它会生成 `acceptance-report\`：`acceptance.txt`、`report.md`、`report.json`，并输出 PASS/FAIL 清单。
 
-需要检查的 8 项：
+脚本会自动断言 10 项：
+
+| # | 检查 | 期望 |
+|---|---|---|
+| 1 | JSON 可解析 | `report.json` 能解析为对象 |
+| 2 | 平台字段 | `platform` 为 `windows` |
+| 3 | 报告标题 | Markdown 含「磁盘体检报告」 |
+| 4 | 无危险命令 | 没有 `del` / `rd` 建议 |
+| 5 | 移动命令 | 含 `Move-Item`，或本次没有 ≥100 MB 推荐项（「无需移动」） |
+| 6 | `browsers` 字段 | 存在 |
+| 7 | `leftoverGroups` 字段 | 存在 |
+| 8 | `estimate` 字段 | 存在 |
+| 9 | 估算分项 | `estimate` 含 `cacheKb` 与 `totalKb` |
+| 10 | 云盘目录 | `cloudStorage` 单独列出 |
+
+再人工复查 6 项：
 
 | # | 检查 | 期望 |
 |---|---|---|
 | 1 | `--self-test` | 全部 PASS（或 SKIP 有说明） |
 | 2 | 权限检查 | 显示「普通用户」或「管理员」，不报错 |
-| 3 | 报告标题/版本 | `磁盘体检报告（Windows）` |
-| 4 | OneDrive | 云盘目录只进「不要动」，不出现在可清理 |
-| 5 | 中文路径 | 报告里中文不乱码 |
-| 6 | 系统目录 | `C:\Windows`、`Program Files`、`ProgramData` 系统项不进可清理 |
-| 7 | UWP | `%LOCALAPPDATA%\Packages` 只进「需确认」 |
-| 8 | 命令 | 建议命令只有 `Move-Item -LiteralPath`，无 `del/rd` |
+| 3 | OneDrive | 云盘目录只进「不要动」，不出现在可清理 |
+| 4 | 中文路径 | 报告里中文不乱码 |
+| 5 | 系统目录 | `C:\Windows`、`Program Files`、`ProgramData` 系统项不进可清理 |
+| 6 | UWP | `%LOCALAPPDATA%\Packages` 只进「需确认」 |
 
 把 `acceptance-report\` 整个发回即可。
 
@@ -59,7 +72,7 @@ dsh plugin --profile desktop add file:C:\deepclean-mydisk-plugin
 
 1. 侧边栏出现 **DeepClean MyDisk**；
 2. 打开面板立即显示系统盘 **总量 / 已用 / 可用**（数据来自 statfs，无需先体检；标题栏也有一行）；
-3. 首页「开始体检」→ 进度 → 体检结果 → 清理推荐项 → 确认 → 撤销；
+3. 首页「开始扫描」→ 进度 → 体检结果 → 清理推荐项 → 确认 → 撤销；
 4. 空间页：目录树、潮汐带状图可钻取；
 5. 大文件：勾选 + 目标磁盘下拉 + 空间对比（不需要真的搬）；
 6. 相似照片：扫描、缩略图、对比、保留策略；

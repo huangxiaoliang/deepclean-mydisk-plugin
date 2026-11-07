@@ -1,6 +1,6 @@
 # DeepClean MyDisk
 
-DeepClean MyDisk 是 macOS / Windows 上的 DSH 磁盘插件：先做**只读**磁盘体检，再由你选择要清理的文件，把它们移入废纸篓或隔离区，并可撤销。它在 DSH 侧边栏提供五个入口：体检、清理、空间、历史、设置。
+DeepClean MyDisk 是 macOS / Windows 上的 DSH 磁盘插件：先做**只读**磁盘体检，再由你选择要清理的文件，把它们移入废纸篓或隔离区，并可撤销。它在 DSH 侧边栏提供六个入口：体检、清理、空间、软件、历史、设置。
 
 ![体检首页](shot-home.jpg)
 
@@ -12,7 +12,9 @@ DeepClean MyDisk 是 macOS / Windows 上的 DSH 磁盘插件：先做**只读**�
 
 ![清理页](shot-clean.jpg)
 
-**空间。** 家目录潮汐带状图 + 面包屑 + 下钻，另有按大小/修改时间筛选的大文件视图。
+**软件。** 「软件」页列出桌面应用与终端工具：点击「扫描软件」可按名称、包名或安装环境查找。macOS 可移出符合条件的独立 App 本体（可从「历史」恢复），终端工具覆盖 Homebrew、npm 全局、pipx 与 uv tool；Windows 通过系统接口处理适用的 MSI、当前用户 Appx 与能确认归属的 WinGet 便携包，其他桌面软件可打开系统应用管理。确认前可预览安装位置、影响与恢复方式；系统或包管理器卸载通常需要重新安装才能恢复。暂不能处理的条目按原因分组显示。
+
+**空间。** 个人文件夹潮汐带状图 + 面包屑 + 下钻，另有按大小/修改时间筛选的大文件视图。
 
 **相似照片。** 用 dHash 指纹在图片、下载、桌面、文稿四个目录中分组相似照片（最多 600 张、最小 200 KB），支持保留最大/最新/路径最浅。
 
@@ -62,7 +64,8 @@ dsh plugin add deepclean-mydisk
 ## 已知限制
 
 - Windows 的 `appCaches` 扫描尚未实现；聊天软件专项分类仅 macOS 提供。
-- Windows 已由 CI 在 Windows Server 2022 / Server 2025 / Windows 11 Arm64 三个镜像上自动验收；手动真机清单见 [docs/windows-acceptance.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/docs/windows-acceptance.md)。
+- Windows 已由 CI 在 Windows Server 2022 / Server 2025 / Windows 11 Arm64 上自动验收扫描器、空间与清理流程；软件卸载仍待真机验收，手动真机清单见 [docs/windows-acceptance.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/docs/windows-acceptance.md)。
+- Windows 的软件原生卸载（MSI / Appx / WinGet 便携包）尚未真机验收；CI 覆盖的是扫描器与合成用例。
 - 跨盘移动不可撤销，原位置不再保留文件。
 - 相似照片只扫描四个目录、最多 600 张、最小 200 KB；云盘目录与照片图库会被跳过。
 - 永久删除不可撤销；撤销只适用于移入废纸篓/隔离区的批次。

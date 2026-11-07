@@ -1,6 +1,6 @@
 # DeepClean MyDisk
 
-DeepClean MyDisk is a DSH plugin for macOS and Windows that audits disk usage without changing anything, then moves the files you select to the Trash or a quarantine folder with undo. It adds a native sidebar panel with five sections: Checkup, Cleanup, Space, History, and Settings.
+DeepClean MyDisk is a DSH plugin for macOS and Windows that audits disk usage without changing anything, then moves the files you select to the Trash or a quarantine folder with undo. It adds a native sidebar panel with six sections: Checkup, Clean, Space, Software, History, and Settings.
 
 ![Checkup home screen](shot-home.jpg)
 
@@ -11,6 +11,8 @@ DeepClean MyDisk is a DSH plugin for macOS and Windows that audits disk usage wi
 **Cleanup.** Seven content categories cover developer, browser, app, chat, system, and other caches, plus uninstalled-app leftovers. Regenerable caches inside uninstalled apps are split out; the rest stays in needs review. Search, sorting, and risk filters are available; chat-app classification is macOS-only.
 
 ![Cleanup screen](shot-clean.jpg)
+
+**Software.** The Software page lists desktop apps and terminal tools. Select Scan software and search by name, package, or install environment. On macOS, eligible standalone app bundles can be moved out (restorable from History), and terminal tools cover Homebrew, npm global, pipx, and uv tool. On Windows, applicable MSI packages, current-user Appx packages, and WinGet portable packages with confirmed ownership are handled through system interfaces; other desktop apps can open system app management. Preview the install location, impact, and recovery path before confirming; system or package-manager uninstalls usually require reinstalling. Items that cannot be handled are grouped by reason.
 
 **Space.** A tide-band chart of the home directory, with breadcrumbs and drill-down, plus a large-file view filtered by size and age.
 
@@ -62,7 +64,8 @@ Add `--profile <name>` for a named profile. This installs the published npm pack
 ## Limits
 
 - Windows `appCaches` scanning is not implemented, and chat-app cache classification is macOS-only.
-- Windows is covered by CI acceptance on Windows Server 2022, Server 2025 and Windows 11 Arm64; the manual real-device checklist is in [docs/windows-acceptance.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/docs/windows-acceptance.md).
+- Windows is covered by CI acceptance on Windows Server 2022, Server 2025 and Windows 11 Arm64 for the scanner, space and cleanup flows; software uninstall is still pending real-device acceptance, and the manual real-device checklist is in [docs/windows-acceptance.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/docs/windows-acceptance.md).
+- Native Windows uninstall (MSI / Appx / WinGet portable) has not been verified on real devices; CI covers the scanner and synthetic cases.
 - Cross-disk moves are not undoable, and the original location is not kept.
 - Similar-photo scanning is limited to four folders, 600 photos, and a 200 KB minimum; cloud folders and photo libraries are skipped.
 - Permanent deletion is irreversible. Undo applies to moved batches only.

@@ -5,7 +5,7 @@
 ## 触发与查看结果
 
 1. 把需要验证的产品代码、工作流及 `scripts/windows-ci/` 一起提交并推送到同一个分支。仅保存本地文件不会触发 GitHub Actions。
-2. 修改 `lib/`、`resources/`、验收脚本、工作流或 package.json 的 push/PR 会自动运行。首次新增工作流时，推送本身即可触发，不依赖手动按钮。
+2. 修改 `lib/`、`resources/`、`tests/`、`scripts/windows-ci/`、该工作流本身或 package.json 的 push/PR 会自动运行（`scripts/acceptance-windows.ps1` 是手动真机验收，不在 CI 路径内）。首次新增工作流时，推送本身即可触发，不依赖手动按钮。
 3. 工作流进入默认分支后，也可在 GitHub → Actions → **Windows acceptance** → **Run workflow** 选择分支运行。
 4. 点击对应的 Windows job 查看 Summary，在运行页面下载 `windows-acceptance-windows-2022-*` / `windows-acceptance-windows-2025-*` / `windows-acceptance-windows-11-arm-*`。
 5. 解压后先看 `summary.md`，再看失败阶段的 `.log`。报告保留 14 天。
@@ -14,6 +14,7 @@
 
 | 阶段 | 检查内容 |
 |---|---|
+| python-version | 记录 runner 上 `python --version` 的输出，写入 `results.json` / `summary.md` |
 | existing-suite | 原有完整 node:test 套件，包含扫描器、照片原生解码、宿主路由、安全和页面渲染回归；输出 TAP |
 | browser-scan | 临时中文目录中创建 Chrome/Edge/Firefox profile 缓存，运行完整 Windows `scan()` 和报告渲染；校验运行标记、推荐表及只读不变性 |
 | volume-setup | 只在临时目录新建唯一的 128 MB VHD，挂载并初始化其 NTFS 分区；绝不选择已有物理盘 |

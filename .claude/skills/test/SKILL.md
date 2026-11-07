@@ -15,6 +15,6 @@ allowed-tools: Bash(npm test:*), Bash(node --test:*), Read, Grep, Glob
 
 约束：
 
-- macOS 上固定出现 **2 个 skip**（`tests/host.test.mjs` 的 Windows 专用用例），这是预期结果，不要删改。
+- macOS 上固定出现 **3 个 skip**（`tests/host.test.mjs` 的 2 个 Windows HTTP 用例 + `tests/software-windows-script.test.mjs` 的 `software-windows.ps1` 脚本回归），这是预期结果，不要删改。
 - 不要把断言改松、删用例或改平台判断来「变绿」；先解释为什么失败。
 - 改完代码重跑直到全绿；只改 `.md` 时不需要跑测试。

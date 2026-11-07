@@ -2,7 +2,7 @@
 
 ## 支持版本
 
-安全修复只针对**最新发布版本**（[Releases](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/releases)）。旧版本如果问题仍然存在，请先升级并确认是否复现。
+安全修复只针对**最新发布版本**（[Releases](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/releases)）。旧版本如果问题仍然存在，请先更新并确认是否复现。
 
 ## 报告安全问题（请勿公开）
 

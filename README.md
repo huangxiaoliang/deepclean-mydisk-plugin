@@ -6,13 +6,14 @@
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey.svg)](#安装)
 
-DSH 插件：macOS / Windows 原生侧边栏磁盘工具。**扫描只读，清理只移动**——文件先移入废纸篓（macOS）或隔离区（Windows），可撤销；永久删除必须二次确认，且只限本插件移入的批次。提供实时容量、空间可视化、相似照片、跨盘移动、恢复中心，以及只读的 AI 体检解读、条目解释、清理前复核与失败诊断。
+DSH 插件：macOS / Windows 原生侧边栏磁盘工具。**扫描只读，清理只移动**——文件先移入废纸篓（macOS）或隔离区（Windows），可撤销；永久删除必须二次确认，且只限本插件移入的批次。提供实时容量、空间可视化、相似照片、跨盘移动、软件卸载、恢复中心，以及只读的 AI 体检解读、条目解释、清理前复核与失败诊断。
 
 DeepClean MyDisk is a DSH plugin for macOS and Windows. It audits disk usage read-only, then moves the files you select to the Trash or a quarantine folder with undo. Cleanup is two-stage: moving files does not free space until you permanently delete a batch after a second confirmation.
 
 - 仓库：[huangxiaoliang/deepclean-mydisk-plugin](https://github.com/huangxiaoliang/deepclean-mydisk-plugin)
 - 安装：`dsh plugin --profile <name> add deepclean-mydisk`（npm）；也可 `add github:huangxiaoliang/deepclean-mydisk-plugin` 或本地 `link:/绝对路径`
 - 反馈：[GitHub Issues](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/issues/new/choose) · 安全问题按 [SECURITY.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/SECURITY.md) 私下发邮件
+- 邮箱: coolway.me@gmail.com
 - 插件详情：[中文](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/docs/plugin/DETAIL.zh.md) · [English](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/docs/plugin/DETAIL.en.md) · [更新日志](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/CHANGELOG.md)
 
 ## 安装
@@ -48,7 +49,7 @@ dsh plugin --profile <name> add link:/绝对路径/deepclean-mydisk-plugin
 
 | 入口 | 内容 |
 |---|---|
-| 体检（首页） | 实时容量、开始体检 / 查看清理建议、AI 解读、扫描选项、体检向导、最近一次整理 |
+| 体检（首页） | 实时容量、开始扫描 / 查看清理建议、AI 解读、扫描选项、体检向导、最近一次整理 |
 | 清理 | 垃圾清理（全部项目 + 7 个内容分类，风险分档、搜索排序、逐项「问 AI」与清理前复核）与相似照片 |
 | 空间 | 目录分布（潮汐带状图 + 面包屑 + 下钻）与大文件（筛选 + 移动 + 「这是什么」） |
 | 软件 | 桌面应用与终端工具清单（可处理项按名称排序，暂不能处理的按原因分组折叠）、卸载预览、执行与核验、AI 解释（不能卸载原因 / 卸载影响 / 卸载结果） |
@@ -59,7 +60,7 @@ dsh plugin --profile <name> add link:/绝对路径/deepclean-mydisk-plugin
 
 ### 体检
 
-- 打开面板即显示实时容量，**不需要先跑体检**；首次扫描前「建议处理」显示「—」而不是 0。
+- 打开面板即显示实时容量，**不需要先跑体检**；首次扫描前清理页「预计可释放」显示「—」而不是 0。
 - 支持快速扫描与完整扫描；结果分为**推荐清理 / 可选清理 / 需确认 / 受保护**四档。
 - 体检向导：推荐清单 → 二次确认 → 显示已移出 → 撤销 / 清理历史 / 完成。
 - 扫描失败、结果过期、无数据、无推荐项分别提示，不会把空结果当成功。
@@ -77,14 +78,14 @@ dsh plugin --profile <name> add link:/绝对路径/deepclean-mydisk-plugin
 
 - 7 个内容分类：开发缓存、浏览器缓存、应用缓存、应用残留、聊天软件缓存、其他缓存、系统缓存。
 - 已卸载残留中的可再生缓存子目录会单独拆出为可清理项，其余数据保持「需确认」；聊天/系统/运行中的 App 不拆。
-- 支持名称/路径搜索、按大小或名称排序、风险筛选、跨分类勾选、三态全选与「选择推荐项」。
+- 支持名称/路径搜索、按大小或名称排序、风险筛选、跨分类勾选、三态全选与「选中推荐项」。
 - 受保护与只读项不可勾选，也不计入「预计可释放」；「需确认」项不会被自动勾选。
 - 清理必须二次确认；**移入废纸篓/隔离区不会立即释放空间**，永久删除本批次后才真正释放。
 - 单次超过 200 项时服务端自动分片，每片独立批次、统一撤销；结果超过 10 分钟会过期并禁用清理。
 
 ### 空间
 
-- 目录分布以家目录为范围（含隐藏项），潮汐带状图与明细表共用分母，长尾归入「其他」；支持下钻、面包屑、显示更多与重新统计。
+- 目录分布以个人文件夹为范围（含隐藏项），潮汐带状图与明细表共用分母，长尾归入「其他」；支持下钻、面包屑、显示更多与重新统计。
 - 大文件视图支持全局（完整扫描）与目录联动，可按名称/路径搜索，按大小或未修改天数排序，按修改时间/类型/大小筛选。
 - 明细行可跳到清理页查看该路径的可清理项；移动完成后自动重新统计当前目录。
 
@@ -103,7 +104,7 @@ dsh plugin --profile <name> add link:/绝对路径/deepclean-mydisk-plugin
 
 ### 历史与恢复
 
-- 扫描历史：时间、可用空间、可回收、耗时。
+- 扫描历史：时间、可用空间、可释放、耗时。
 - 清理批次：时间、项数、可恢复项数；「恢复此批次」从审计日志把文件移回原位置（跨重启可用）。
 - 永久删除本批次或全部批次需二次确认，只允许本插件移入的条目，拒绝符号链接与隔离区外路径。
 - 审计日志在 `$DSH_HOME/deepclean-audit.log`，历史在 `$DSH_HOME/deepclean-history.json`。
@@ -141,7 +142,7 @@ dsh plugin --profile <name> add link:/绝对路径/deepclean-mydisk-plugin
 - 云盘保护基于路径与 Windows 云占位属性识别（iCloud Drive / OneDrive / Dropbox / Google Drive）；企业自建网盘或自定义同步目录需通过 `DEEPCLEAN_CLOUD_ROOTS` 补充。
 - Windows 暂未提供 VSS / 回收站占用提示：永久删除后可用空间可能因卷影副本短暂滞后。
 - **Windows 的聊天软件专项分类仅 macOS 提供**；Windows 的应用缓存扫描也尚未实现（报告字段已预留）。
-- Windows 需要管理员权限的目录（如 `C:\Windows\Temp`），非管理员执行时清理会失败。
+- Windows 上需要管理员权限的目录（如 `C:\Windows\Temp`）只读展示、不进入清理允许集合；请用系统「磁盘清理」处理。
 - 真实释放估算有 8 秒预算：超大目录可能被截断，最终以清理前后可用空间差为准。
 - Linux 未验收；英文模式下少量扫描器生成的文本仍是中文。
 - 撤销只针对本会话内存中的批次；跨重启恢复请用历史页的「恢复此批次」。
@@ -156,7 +157,7 @@ dsh plugin --profile <name> add link:/绝对路径/deepclean-mydisk-plugin
 - **面板内**：设置页「反馈与联系」直接提供邮箱、微信与 GitHub 仓库地址，以及打开仓库页的 Star 入口（Star 仍需在 GitHub 登录后手动点）。
 - **Bug / 使用问题 / 功能建议**：请开 [GitHub Issue](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/issues/new/choose)（推荐用问题模板）。
 - **安全问题**（越权删除、路径逃逸、恢复失败、隐私泄露等）：不要公开提 Issue，请发邮件到 **coolway.me@gmail.com**，详见 [SECURITY.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/SECURITY.md)。
-- **提交前**：升级或改过插件后先重启 DSH；权限检查未授权时先授权再重试。
+- **提交前**：更新或改过插件后先重启 DSH；权限检查未授权时先授权再重试。
 - **请附上**：插件版本、DSH 版本、系统版本、出问题的功能、错误码/失败阶段、复现步骤、已脱敏的日志或截图。
 - **不要贴**：完整磁盘路径、用户名、文件名、聊天记录或未脱敏的审计日志原文；用 `~/…`、`%LOCALAPPDATA%\…` 代替。
 - 详细支持说明见 [SUPPORT.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/SUPPORT.md)。
