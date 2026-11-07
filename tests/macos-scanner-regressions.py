@@ -4,6 +4,7 @@
 依赖 POSIX find，Windows CI 上自动跳过。
 由 tests/scanner.test.mjs 调用。
 """
+import argparse
 import importlib.util
 import os
 import shutil
@@ -114,15 +115,107 @@ try:
     rows3, _ = mac.big_files(str(home / "不存在"), 0, top=15)
     check("目录不存在返回空", rows3 == [])
 
+    # estimate 口径：被 UI 隐藏的父级缓存不计入 cacheKb；safe 阈值仍用 min_leftover_mb
+    base = "/Users/x"
+    est_report = {
+        "caches": [
+            {"path": base + "/Library/Caches/Google", "kb": 5000},  # 被 browsers 子路径覆盖
+            {"path": base + "/Library/Caches/Other", "kb": 3000},  # 被 appCaches 子路径包住
+            {"path": base + "/Library/Caches/Keep", "kb": 2000},  # 与任何具体条目都不重叠
+            {"path": base + "/Library/Caches/CloudKit", "kb": 900, "system": True},
+            {"path": base + "/Library/Caches/WithDev", "kb": 1200},  # 与 devCaches 重叠
+        ],
+        "devCaches": [{"path": base + "/Library/Caches/WithDev", "kb": 1000}],
+        "browsers": [{"name": "Chrome", "path": base + "/Library/Caches/Google/Chrome",
+                      "kb": 4000, "running": False}],
+        "appCaches": [{"baseId": "com.foo", "app": "Foo", "kb": 1500, "running": False,
+                       "cleanable": True, "paths": [base + "/Library/Caches/Other/sub"]}],
+        "special": [{"app": "微信", "categories": [
+            {"name": "缓存", "kb": 100, "cleanable": True,
+             "paths": [base + "/Library/Containers/com.tencent.xinWeChat/Data/cache"]}]}],
+        "leftoverGroups": [
+            {"baseId": "a", "kb": 20000, "bucket": "safe",
+             "paths": [base + "/Library/Containers/com.a/Data/Library/Caches"]},
+            {"baseId": "b", "kb": 500, "bucket": "safe",
+             "paths": [base + "/Library/Containers/com.b/Data/Library/Caches"]},
+            {"baseId": "c", "kb": 7000, "bucket": "confirm",
+             "paths": [base + "/Library/Containers/com.c/Data"]},
+        ],
+    }
+    est = mac.estimate_of(est_report, 10)
+    check("estimate 排除被具体条目覆盖/包住的父级缓存", est["cacheKb"] == 2000, repr(est))
+    check("estimate 排除与 devCaches 重复的缓存行（UI 已隐藏）",
+          est["overlapKb"] == 0 and est["devKb"] == 1000, repr(est))
+    check("estimate safeKb 仍按 min_leftover_mb 阈值", est["safeKb"] == 20000, repr(est))
+    check("estimate 补 confirmKb", est.get("confirmKb") == 7000, repr(est))
+    check("estimate totalKb 不含 confirmKb", est["totalKb"] == 20000 + 2000 + 1000, repr(est))
+
+    # 完整 quick 扫描（临时 HOME、只读）：报告必须带 minLeftoverKb / processSnapshot
+    scan_home = tmp / "scan-home"
+    (scan_home / "Library" / "Containers").mkdir(parents=True)
+    (scan_home / "Library" / "Caches").mkdir(parents=True)
+    ns_scan = argparse.Namespace(home=str(scan_home), quick=True, min_mb=300,
+                                 min_leftover_mb=10, top=15, redact=False,
+                                 no_cloud=False, home_total=False)
+    full = mac.scan(ns_scan)
+    check("报告带 minLeftoverKb", full.get("minLeftoverKb") == 10 * 1024, repr(full.get("minLeftoverKb")))
+    check("报告带 processSnapshot", full.get("processSnapshot") in ("ok", "unavailable"),
+          repr(full.get("processSnapshot")))
+    check("报告 estimate 带 confirmKb", isinstance(full.get("estimate", {}).get("confirmKb"), int),
+          repr(full.get("estimate")))
+
     # 浏览器缓存：运行中的浏览器标 running（宿主会把它挡在清理允许集合外）
     bhome = tmp / "bhome"
     chrome = bhome / "Library" / "Caches" / "Google" / "Chrome"
     chrome.mkdir(parents=True)
     (chrome / "f.bin").write_bytes(b"x" * 2048)
     running = mac.browser_caches(bhome, "501 /applications/google chrome.app/contents/macos/google chrome")
-    idle = mac.browser_caches(bhome, "")
+    idle = mac.browser_caches(bhome, "1 /sbin/launchd")
+    lost = mac.browser_caches(bhome, "")
     check("运行中的浏览器标记 running", bool(running) and running[0]["running"] is True, repr(running))
-    check("无进程快照时不标 running", bool(idle) and idle[0]["running"] is False, repr(idle))
+    check("快照可用且未命中时不标 running", bool(idle) and idle[0]["running"] is False, repr(idle))
+    check("快照不可用时浏览器标 running（fail-closed）", bool(lost) and lost[0]["running"] is True, repr(lost))
+
+    # 进程快照 fail-closed：快照获取失败（空串）不能当成「全部未运行」
+    check("空快照判定不可用", mac.snapshot_available("") is False)
+    check("非空快照判定可用", mac.snapshot_available("1 /sbin/launchd") is True)
+    check("快照不可用时 App 缓存视为运行中",
+          mac.app_cache_running("微信", "com.tencent.xinwechat", "") is True)
+    check("快照可用且未命中时 App 缓存不算运行中",
+          mac.app_cache_running("示例", "com.example.app", "1 /sbin/launchd") is False)
+    check("快照可用且命中 bundleId 时 App 缓存运行中",
+          mac.app_cache_running("示例", "com.example.app",
+                                "42 /applications/example.app/contents/macos/example com.example.app") is True)
+    split_container = {"baseId": "com.example.app", "bundleId": "com.example.app"}
+    check("快照不可用时残留不拆缓存子目录", mac.leftover_split_enabled(split_container, "") is False)
+    check("快照可用且未命中时可拆残留缓存",
+          mac.leftover_split_enabled(split_container, "1 /sbin/launchd") is True)
+    check("快照可用且残留进程运行时不可拆",
+          mac.leftover_split_enabled(split_container, "42 com.example.app") is False)
+    # 不可信目录名（微信收到的文件夹名）不得进入 shell：special_clean 必须走 argv。
+    evil_home = tmp / "evil home"
+    payload = (evil_home / "Library" / "Containers" / "com.tencent.xinWeChat" / "Data"
+               / "Documents" / "msg" / "x$(touch PWNED)" / "image")
+    payload.mkdir(parents=True)
+    (payload / "blob.bin").write_bytes(b"x" * (2 * 1024 * 1024))
+    marker = tmp / "PWNED"
+    old_cwd = os.getcwd()
+    os.chdir(tmp)
+    try:
+        rows = mac.special_clean(evil_home)
+    finally:
+        os.chdir(old_cwd)
+    check("special_clean 不执行目录名里的命令替换", not marker.exists(), str(marker))
+    check("special_clean 对特殊字符路径仍正常返回", isinstance(rows, list), repr(rows))
+    # du 失败返回 None 时必须跳过，不能 `None < 1024` 让整次体检崩溃。
+    original_du_one = mac.du_one
+    mac.du_one = lambda path, timeout=60: None
+    try:
+        rows_none = mac.special_clean(evil_home)
+    finally:
+        mac.du_one = original_du_one
+    check("du 失败时跳过 None 条目而不是崩溃", rows_none == [], repr(rows_none))
+
 finally:
     shutil.rmtree(tmp, ignore_errors=True)
 

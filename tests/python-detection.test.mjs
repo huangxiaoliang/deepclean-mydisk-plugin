@@ -49,6 +49,7 @@ async function scan(t, python) {
   async function call(method) {
     const req = new EventEmitter()
     req.method = method
+    req.headers = { host: '127.0.0.1:62465', 'x-deepclean-ui': 'panel', 'sec-fetch-site': 'same-origin' }
     const res = { writeHead(code) { this.code = code }, end(body) { this.body = JSON.parse(body) } }
     const pending = routes.get('/dsh-deepclean/api/scan')(req, res)
     req.emit('data', Buffer.from('{}'))

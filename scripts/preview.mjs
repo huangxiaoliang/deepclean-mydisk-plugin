@@ -3,6 +3,7 @@
  * ?data=1 opens with scan results. ?data=1&expired=1 previews an expired scan.
  * DEEPCLEAN_PREVIEW_FDA=denied previews the Full Disk Access banner (macOS denied state).
  * DEEPCLEAN_PREVIEW_PYTHON=missing previews Windows Python setup; ?ai=no-session tests clipboard fallback.
+ * ?update=available|none|link|error previews the plugin update badge, up-to-date, link-install and unavailable states; ?dialog=1 opens it; ?view=settings opens the settings page.
  */
 import http from 'node:http'
 import fs from 'node:fs'
@@ -21,6 +22,7 @@ const disk = () => ({ ...previewReport().disk, mount: '/demo', at: Date.now() })
 const permissionDenied = process.env.DEEPCLEAN_PREVIEW_FDA === 'denied'
 const pythonMissing = process.env.DEEPCLEAN_PREVIEW_PYTHON === 'missing'
 const pythonError = { errorCode: 'python_unavailable', error: '示例环境：找不到可用的 Python 3' }
+let updateMode = 'available'
 let fdaRevision = 0
 let state
 let software = { items: [], sources: [], jobs: [], at: 0, token: 'preview-software' }
@@ -64,7 +66,7 @@ function updateScan() {
   if (elapsed > 3000) { state.report = previewReport(); state.at = Date.now(); state.scan = { status: 'done', full: true, progress: 100, elapsed: 3, stage: '完成', fda: { status: 'granted', revision: state.scanFdaRevision } } }
   else state.scan = { status: 'running', progress: Math.min(95, Math.round(elapsed / 32)), elapsed: Math.floor(elapsed / 1000), stage: '扫描开发缓存' }
 }
-const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>DeepClean · 示例数据预览</title><style>html,body,#root{height:100%;margin:0}body{background:#fff}</style></head><body><div id="root"></div><script src="/runtime.js"></script><script>window.__ModuleLoader__={load(def){window.panelDefinition=def}};window.__previewErrors=[];window.addEventListener('error',e=>window.__previewErrors.push(e.message));window.addEventListener('unhandledrejection',e=>window.__previewErrors.push(String(e.reason)));</script><script src="/client.js"></script><script>(async()=>{const q=new URLSearchParams(location.search);await fetch('/__preview/reset?data='+q.get('data')+'&expired='+q.get('expired'));const React=require('react'),mod=window.panelDefinition.factory(require);let Panel;window.__previewAiPrompts=[];const previewAi={available:true,ask:async(text)=>{if(q.get('ai')==='no-session')return 'no-session';window.__previewAiPrompts.push(text);console.log('[preview AI prompt]\\n'+text);return 'sent'}};mod.apply({slots:{inject(_n,cb){cb()},register(spec,comp){if(spec.name==='main')Panel=comp;return()=>{}}}});require('react-dom/client').createRoot(document.getElementById('root')).render(React.createElement(Panel,{ai:previewAi}));})();</script></body></html>`
+const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>DeepClean · 示例数据预览</title><style>html,body,#root{height:100%;margin:0}body{background:#fff}</style></head><body><div id="root"></div><script src="/runtime.js"></script><script>window.__ModuleLoader__={load(def){window.panelDefinition=def}};window.__previewErrors=[];window.addEventListener('error',e=>window.__previewErrors.push(e.message));window.addEventListener('unhandledrejection',e=>window.__previewErrors.push(String(e.reason)));</script><script src="/client.js"></script><script>(async()=>{const q=new URLSearchParams(location.search);await fetch('/__preview/reset?data='+q.get('data')+'&expired='+q.get('expired')+'&update='+q.get('update'));const React=require('react'),mod=window.panelDefinition.factory(require);let Panel;window.__previewAiPrompts=[];const previewAi={available:true,ask:async(text)=>{if(q.get('ai')==='no-session')return 'no-session';window.__previewAiPrompts.push(text);console.log('[preview AI prompt]\\n'+text);return 'sent'}};mod.apply({slots:{inject(_n,cb){cb()},register(spec,comp){if(spec.name==='main')Panel=comp;return()=>{}}}});require('react-dom/client').createRoot(document.getElementById('root')).render(React.createElement(Panel,{ai:previewAi}));if(q.get('dialog')==='1')setTimeout(()=>{const b=document.querySelector('.dc-update-badge');if(b)b.click()},400);if(q.get('view')==='settings')setTimeout(()=>{[...document.querySelectorAll('.dc-nav button')].find(b=>b.textContent.trim()==='设置')?.click()},400);})();</script></body></html>`
 const quarantine = () => {
   const batches = state.batches.filter((b) => b.restorable > 0)
   const kbOf = (b) => b.items.filter(i => i.exists).reduce((m, i) => m + (Number(i.kb) || 0), 0)
@@ -100,7 +102,7 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/runtime.js') { res.writeHead(200, { 'Content-Type': 'text/javascript' }); return res.end(runtime) }
     if (url.pathname === '/client.js') return bytes(path.join(root, 'lib/client.js'), 'text/javascript')
     if (url.pathname === '/dsh-deepclean/assets/disk.png') return bytes(path.join(root, 'resources/images/disk.png'), 'image/png')
-    if (url.pathname === '/__preview/reset') { const data = url.searchParams.get('data') === '1'; const expired = url.searchParams.get('expired') === '1'; if (state.scenario !== `${data}:${expired}`) reset(data, expired); return json({ demo: true }) }
+    if (url.pathname === '/__preview/reset') { const data = url.searchParams.get('data') === '1'; const expired = url.searchParams.get('expired') === '1'; updateMode = url.searchParams.get('update') || 'available'; if (state.scenario !== `${data}:${expired}`) reset(data, expired); return json({ demo: true }) }
     if (url.pathname === '/__preview/state') return json({ ...state, console: 'Browser exceptions are also captured in window.__previewErrors' })
     let body = ''
     for await (const chunk of req) body += chunk
@@ -132,6 +134,17 @@ const server = http.createServer(async (req, res) => {
         software.active = null; job.finishedAt = Date.now()
       }, 1800)
       return json(job, 202)
+    }
+    if (api === '/update-check') {
+      const at = Date.now()
+      if (updateMode === 'none') return json({ supported: true, reason: 'up_to_date', updatable: true, updateAvailable: false, installedVersion: '0.13.1', latestVersion: '0.13.1', checkedAt: at })
+      if (updateMode === 'link') return json({ supported: true, reason: 'not_updatable', updatable: false, updateAvailable: false, installedVersion: '0.13.1', latestVersion: '', checkedAt: at })
+      if (updateMode === 'error') return json({ supported: false, reason: 'manager_unavailable', updatable: false, updateAvailable: false, installedVersion: '0.13.1', latestVersion: '', checkedAt: at })
+      return json({ supported: true, reason: '', updatable: true, updateAvailable: true, installedVersion: '0.13.1', latestVersion: '0.14.0', checkedAt: at })
+    }
+    if (api === '/update') {
+      if (body.confirm !== true) return json({ error: 'invalid_request' }, 400)
+      return json({ ok: true, from: '0.13.1', to: '0.14.0', application: 'restart-required', stage: 'install', restartRequired: true })
     }
     if (api === '/overview') return json({ at: state.at, report: state.report, disk: disk(), scan: state.scan, whitelist: state.whitelist, platform: pythonMissing ? 'win32' : 'darwin', history: state.history, cleanBatches: state.batches, quarantine: quarantine() })
     if (api === '/quarantine') return json(quarantine())

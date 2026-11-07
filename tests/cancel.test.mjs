@@ -20,7 +20,7 @@ const find = (p) => routes.find((r) => r.path === '/dsh-deepclean/api' + p)
 function mockRes() { return { code: 0, body: '', writeHead(c) { this.code = c }, end(b) { this.body = b }, destroy() {} } }
 function mockReq(method, url, body) {
   const listeners = {}
-  const req = { method, url, on(e, f) { (listeners[e] ||= []).push(f) }, destroy() {} }
+  const req = { method, url, headers: { host: '127.0.0.1:62465', 'x-deepclean-ui': 'panel', 'sec-fetch-site': 'same-origin' }, on(e, f) { (listeners[e] ||= []).push(f) }, destroy() {} }
   setTimeout(() => {
     if (body !== undefined) for (const f of listeners.data || []) f(Buffer.from(body))
     for (const f of listeners.end || []) f()

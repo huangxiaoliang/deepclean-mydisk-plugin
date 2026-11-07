@@ -33,18 +33,20 @@ function find(p) {
 function mockRes() {
   return { code: 0, body: '', writeHead(c) { this.code = c }, end(b) { this.body = b }, destroy() {} }
 }
-function mockReq(method, url, body) {
+// 面板路由要求来源标记；测试默认模拟同源同回的浏览器请求。
+const PANEL_HEADERS = { host: '127.0.0.1:62465', 'x-deepclean-ui': 'panel', 'sec-fetch-site': 'same-origin' }
+function mockReq(method, url, body, headers = {}) {
   const listeners = {}
-  const req = { method, url, on(e, f) { (listeners[e] ||= []).push(f) }, destroy() {} }
+  const req = { method, url, headers: { ...PANEL_HEADERS, ...headers }, on(e, f) { (listeners[e] ||= []).push(f) }, destroy() {} }
   setTimeout(() => {
     if (body !== undefined) for (const f of listeners.data || []) f(Buffer.from(body))
     for (const f of listeners.end || []) f()
   }, 0)
   return req
 }
-async function call(p, method = 'GET', body) {
+async function call(p, method = 'GET', body, headers) {
   const res = mockRes()
-  await find(p).handler(mockReq(method, '/dsh-deepclean/api' + p, body), res)
+  await find(p).handler(mockReq(method, '/dsh-deepclean/api' + p, body, headers), res)
   return { code: res.code, body: JSON.parse(res.body || '{}') }
 }
 
@@ -58,6 +60,24 @@ test('state starts clean', async () => {
   const { code, body } = await call('/state')
   assert.equal(code, 200)
   assert.equal(body.canUndo, false)
+})
+
+test('panel APIs reject cross-site, rebound and unmarked requests', async () => {
+  // 无自定义头：跨站简单请求与 DNS rebinding 页面都无法附加。
+  assert.equal((await call('/overview', 'GET', undefined, { 'x-deepclean-ui': '' })).code, 403)
+  // 非回环 Host 是 DNS rebinding 的核心特征。
+  assert.equal((await call('/overview', 'GET', undefined, { host: 'rebound.example:62465' })).code, 403)
+  assert.equal((await call('/overview', 'GET', undefined, { 'sec-fetch-site': 'cross-site' })).code, 403)
+  assert.equal((await call('/overview', 'GET', undefined, { origin: 'https://evil.example' })).code, 403)
+  // 写操作在读取 body / 新鲜度判断之前就被拦下。
+  assert.equal((await call('/clean', 'POST', '{}', { 'x-deepclean-ui': '' })).code, 403)
+  assert.equal((await call('/quarantine/purge', 'POST', '{}', { host: 'rebound.example:62465' })).code, 403)
+  // 合法面板请求不受影响。
+  assert.equal((await call('/overview')).code, 200)
+  // 图片路由不要求自定义头（<img> 不能加头），但仍受 Host/跨站围栏约束。
+  assert.equal((await call('/thumb', 'GET', undefined, { 'x-deepclean-ui': '' })).code, 404)
+  assert.equal((await call('/thumb', 'GET', undefined, { 'x-deepclean-ui': '', host: 'rebound.example:62465' })).code, 403)
+  assert.equal((await call('/thumb', 'GET', undefined, { 'x-deepclean-ui': '', 'sec-fetch-site': 'cross-site' })).code, 403)
 })
 
 test('overview exposes live disk usage before any scan', async () => {
@@ -132,6 +152,7 @@ test('pruneReport drops cleaned rows and keeps partially cleaned groups', () => 
     appCaches: [{ baseId: 'app', paths: ['/x/ac1', '/x/ac2'], kb: 5 }],
     special: [{ app: '微信', categories: [{ name: '缓存', paths: ['/x/s1'], cleanable: true }] }],
     estimate: { safeKb: 30, cacheKb: 3, devKb: 1, totalKb: 34 },
+    trashKb: 2048,
   }
   const pruned = plugin.pruneReport(report, new Set(['/x/a1', '/x/b1', '/x/c1', '/x/br', '/x/ac1', '/x/s1']))
   assert.deepEqual(pruned.leftoverGroups.map((g) => g.baseId), ['b'], 'fully cleaned group removed')
@@ -143,8 +164,56 @@ test('pruneReport drops cleaned rows and keeps partially cleaned groups', () => 
   assert.equal(pruned.browsers.length, 0)
   assert.deepEqual(pruned.appCaches[0].paths, ['/x/ac2'])
   assert.equal(pruned.special.length, 0, 'special app with no categories left is removed')
-  assert.equal(pruned.estimate.totalKb, 34, 'estimate stays the scan-time snapshot')
+  // 估算按剪枝后的行复算：a 组已清掉（-10）、c1 已清掉（-1），b 组只能保留扫描时 kb。
+  assert.equal(pruned.estimate.safeKb, 20, 'cleaned leftover groups stop counting toward the estimate')
+  assert.equal(pruned.estimate.cacheKb, 2)
+  assert.equal(pruned.estimate.devKb, 1)
+  assert.equal(pruned.estimate.totalKb, 23)
+  assert.equal(pruned.trashKbStale, true, 'the scan-time trash total is marked stale after a cleanup')
   assert.deepEqual(plugin.pruneReport(report, new Set()).leftoverGroups.length, 2, 'empty set is a no-op')
+})
+
+test('estimateOf mirrors the scanner口径 and skips cache parents hidden by specific rows', () => {
+  const google = '/Users/x/Library/Caches/Google'
+  const chrome = '/Users/x/Library/Caches/Google/Chrome'
+  const plain = '/Users/x/Library/Caches/Plain'
+  const dev = '/Users/x/Library/Caches/electron-builder'
+  const report = {
+    platform: 'macos',
+    minLeftoverKb: 10 * 1024,
+    leftoverGroups: [
+      { baseId: 'big', paths: ['/x/big'], kb: 20 * 1024, bucket: 'safe' },
+      { baseId: 'tiny', paths: ['/x/tiny'], kb: 1024, bucket: 'safe' },
+      { baseId: 'chat', paths: ['/x/chat'], kb: 4 * 1024, bucket: 'confirm' },
+    ],
+    // 同一个开发缓存也出现在通用缓存列表里（扫描器两侧都列），由 specific 去重保证只算一次。
+    caches: [{ path: google, kb: 300 * 1024 }, { path: plain, kb: 100 * 1024 }, { path: dev, kb: 90 * 1024 }, { path: '/x/sys', kb: 50 * 1024, system: true }],
+    devCaches: [{ path: dev, kb: 90 * 1024 }],
+    browsers: [{ name: 'Chrome', path: chrome, kb: 280 * 1024 }],
+  }
+  const est = plugin.estimateOf(report)
+  assert.equal(est.safeKb, 20 * 1024, 'safe groups below minLeftoverKb stay out')
+  assert.equal(est.confirmKb, 4 * 1024)
+  // Google 父目录被 Chrome 浏览器条目覆盖：UI 不展示，估算也不计入；
+  // 开发缓存同时出现在 caches 里也按 specific 去重，金额只落在 devKb 上。
+  assert.equal(est.cacheKb, 100 * 1024)
+  assert.equal(est.devKb, 90 * 1024)
+  assert.equal(est.overlapKb, 0)
+  assert.equal(est.totalKb, 210 * 1024)
+})
+
+test('allowedPaths drops cache parents the panel hides behind specific rows', () => {
+  const google = path.join(root, 'Caches', 'Google')
+  const chrome = path.join(google, 'Chrome')
+  const plain = path.join(root, 'Caches', 'Plain')
+  const report = {
+    caches: [{ path: google, kb: 300 }, { path: plain, kb: 100 }],
+    browsers: [{ name: 'Chrome', path: chrome, kb: 280, running: false }],
+  }
+  const allowed = plugin.allowedPaths(report)
+  assert.ok(!allowed.has(google), 'the hidden parent must not be cleanable through the API')
+  assert.ok(allowed.has(chrome), 'the visible browser row stays cleanable')
+  assert.ok(allowed.has(plain), 'unrelated caches stay cleanable')
 })
 
 test('move refuses without a fresh scan', async () => {
@@ -225,6 +294,26 @@ test('macOS distinguishes a scanner-reported permission denial from an unrelated
       assert.equal(scan.fda, null)
       assert.match(scan.error, /cannot open scanner script/)
     }
+  }
+})
+
+test('scan rejection names the real blocker', async () => {
+  // 纯函数：软件卸载优先于扫描占用，避免把「去软件页完成核验」误报成「扫描已在进行中」。
+  assert.equal(plugin.scanRejectionReason(true, 'idle'), 'software_active')
+  assert.equal(plugin.scanRejectionReason(false, 'running'), 'scan_running')
+  assert.equal(plugin.scanRejectionReason(false, 'idle'), '')
+  assert.equal(plugin.photoScanRejectionReason(true, 'idle', 'idle'), 'software_active')
+  assert.equal(plugin.photoScanRejectionReason(false, 'running', 'idle'), 'scan_running')
+  assert.equal(plugin.photoScanRejectionReason(false, 'idle', 'running'), 'photos_running')
+  // 真实扫描进行中：HTTP 409 必须带稳定 errorCode，客户端才能本地化。
+  assert.equal((await call('/scan', 'POST', '{}')).code, 202)
+  const busy = await call('/scan', 'POST', '{}')
+  assert.equal(busy.code, 409)
+  assert.equal(busy.body.errorCode, 'scan_running')
+  await call('/scan/cancel', 'POST', '{}')
+  for (let i = 0; i < 100; i++) {
+    if ((await call('/scan')).body.scan.status !== 'running') break
+    await new Promise((resolve) => setTimeout(resolve, 20))
   }
 })
 
@@ -1158,4 +1247,46 @@ test('running browser protection also blocks overlapping cache parents and desce
   const allowed = plugin.allowedPaths(report)
   assert.ok(allowed.has(sibling), 'unrelated cache remains cleanable')
   for (const blocked of [parent, browser, path.join(browser, 'sub-cache')]) assert.ok(!allowed.has(blocked), blocked)
+})
+
+test('a history write failure never flips a finished scan to error', {
+  skip: process.platform !== 'darwin',
+}, async (t) => {
+  const bin = fs.mkdtempSync(path.join(root, 'history-fail-'))
+  const python = path.join(bin, 'python3')
+  const oldPath = process.env.PATH
+  process.env.PATH = bin
+  // 让扫描成功返回一份最小报告；历史文件被换成目录，appendHistory 必然失败。
+  fs.writeFileSync(python, `#!/bin/sh
+out=""
+prev=""
+for arg in "$@"; do
+  if [ "$prev" = "--json" ]; then out="$arg"; fi
+  prev="$arg"
+done
+if [ -n "$out" ]; then
+  printf '%s' '{"version":"0.5.0","platform":"macos","elapsed":0.1,"disk":{"total":100,"used":10,"free":90}}' > "$out"
+fi
+exit 0
+`, { mode: 0o700 })
+  const dshHome = path.join(root, 'dsh')
+  const historyPath = path.join(dshHome, 'deepclean-history.json')
+  fs.mkdirSync(dshHome, { recursive: true })
+  fs.rmSync(historyPath, { force: true })
+  fs.mkdirSync(historyPath)
+  t.after(() => {
+    process.env.PATH = oldPath
+    fs.rmSync(bin, { recursive: true, force: true })
+    fs.rmSync(historyPath, { recursive: true, force: true })
+  })
+
+  assert.equal((await call('/scan', 'POST', '{}')).code, 202)
+  let scan
+  for (let i = 0; i < 100; i++) {
+    scan = (await call('/scan')).body.scan
+    if (scan.status !== 'running') break
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  assert.equal(scan.status, 'done', 'history write failure must not turn a finished scan into an error')
+  assert.ok((await call('/scan')).body.report, 'the finished report stays available for cleanup')
 })
