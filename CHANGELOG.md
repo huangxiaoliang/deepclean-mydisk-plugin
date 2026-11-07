@@ -1,5 +1,9 @@
 # deepclean-mydisk 插件变更
 
+## 0.13.1 — 2026-11-07
+- 修复（兼容性声明）：`engines.dsh` 与 `@deepseek-ai/dsh-tools` 的 peer 范围补上 0.2.2 预发布分支（`>=0.2.1-rc.5 <0.3.0-0 || >=0.2.2-rc.1 <0.3.0-0`）。此前的单一 0.2.1 分支会让 node-semver **静默排除所有 0.2.2 预发布宿主**，导致插件在 DSH 0.2.2-rc.x 的「插件 → 发现」里被判定为不兼容而隐藏；插件本身在同一宿主上可直接安装并正常运行
+- 实测依据：DSH 0.2.2-rc.1 上 `dsh plugin add deepclean-mydisk@0.13.0` 安装成功，宿主加载后 `/dsh-deepclean/api/disk` 与 `/api/overview` 均正常响应，但 semver 判定为不兼容
+
 ## 0.13.0 — 2026-11-06
 - 空间页改版：环形图换成**潮汐带状图**（按目录占比分带、保留面包屑与下钻、新增范围与可清理提示）；图表与明细共用同一分母
 - 空间统计加固（`tree.py`）：单趟后序遍历 + 预归一化根路径；硬链接按 `(dev, ino)` 去重，`bigFiles` 只保留一条并在客户端给出共享说明；云占位在重解析点之前判定；超过 260 字符的 Windows 路径改用 `\\?\` 前缀；新增 `skippedCloud` / `cloudFiles` / `sharedFiles` / `sharedDupKb` / `bigFilesCap` 字段

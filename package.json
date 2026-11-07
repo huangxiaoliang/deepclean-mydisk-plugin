@@ -1,6 +1,6 @@
 {
   "name": "deepclean-mydisk",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "description": "Read-only disk audit and cleanup for macOS and Windows: caches, leftovers, similar photos, space breakdown, and cross-disk file moves.",
   "author": "huangxiaoliang",
   "keywords": [
@@ -16,7 +16,7 @@
   "type": "module",
   "main": "lib/index.js",
   "engines": {
-    "dsh": ">=0.2.1-rc.5 <0.3.0-0"
+    "dsh": ">=0.2.1-rc.5 <0.3.0-0 || >=0.2.2-rc.1 <0.3.0-0"
   },
   "files": [
     "lib",
@@ -39,7 +39,7 @@
     }
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-tools": ">=0.2.1-rc.5 <0.3.0-0"
+    "@deepseek-ai/dsh-tools": ">=0.2.1-rc.5 <0.3.0-0 || >=0.2.2-rc.1 <0.3.0-0"
   },
   "license": "MIT",
   "devDependencies": {
