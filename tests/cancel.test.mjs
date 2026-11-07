@@ -16,7 +16,7 @@ const ctx = {
   inject(deps, cb) { if (deps.includes('webServer')) cb({ webServer: { register(r) { routes.push(r); return () => {} } } }) },
 }
 plugin.apply(ctx)
-const find = (p) => routes.find((r) => r.path.endsWith(p))
+const find = (p) => routes.find((r) => r.path === '/dsh-deepclean/api' + p)
 function mockRes() { return { code: 0, body: '', writeHead(c) { this.code = c }, end(b) { this.body = b }, destroy() {} } }
 function mockReq(method, url, body) {
   const listeners = {}

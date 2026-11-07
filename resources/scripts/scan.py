@@ -912,6 +912,7 @@ def main():
     ap.add_argument("--redact", action="store_true", help="脱敏：HOME→~、主机名打码")
     ap.add_argument("--check-permissions", action="store_true",
                     help="只检查完全磁盘访问权限后退出")
+    ap.add_argument("--permission-status", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--force", action="store_true", help="权限不足时仍生成部分报告（不可信）")
     ap.add_argument("--version", action="version", version=f"deepclean-mydisk {VERSION}")
     args = ap.parse_args()
@@ -919,6 +920,8 @@ def main():
     home = Path(args.home).expanduser().resolve() if args.home else Path.home()
     status, detail = fda_status(home)
     if args.check_permissions:
+        if args.permission_status:
+            print(f"DEEPCLEAN_FDA {status}", file=sys.stderr)
         print(permission_line(status, detail))
         if status == "denied":
             print()
@@ -926,6 +929,8 @@ def main():
             sys.exit(2)
         sys.exit(0)
     if status == "denied" and not args.force:
+        if args.permission_status:
+            print("DEEPCLEAN_FDA denied", file=sys.stderr)
         print(PERMISSION_HELP)
         sys.exit(2)
 
@@ -942,6 +947,8 @@ def main():
         Path(args.json).write_text(data, encoding="utf-8")
         print(f"[written] {args.json}", file=sys.stderr)
     if r["fda"]["status"] == "denied" and not args.force:
+        if args.permission_status:
+            print("DEEPCLEAN_FDA denied", file=sys.stderr)
         sys.exit(2)
 
 

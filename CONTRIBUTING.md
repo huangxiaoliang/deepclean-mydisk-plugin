@@ -75,17 +75,17 @@ node scripts/preview.mjs                                   # 隔离预览
 
 ## HTTP API
 
-宿主注册 28 条路由，全部挂在 `/dsh-deepclean` 下；客户端使用其中 24 条。无鉴权，依赖 DSH webServer 自身边界；请求体上限 1 MB。下表按用途列出（`/api/scan` 的 GET / POST 分两行列）。
+原有磁盘路由挂在 `/dsh-deepclean` 下，依赖 DSH webServer 边界，请求体上限 1 MB。软件路由额外检查回环 Host、同源请求及会话令牌，写请求体上限 8 KB。软件路由契约见 [软件卸载实施契约](docs/design/software-uninstall.md)。下表列出磁盘路由。
 
 **只读**
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/assets/disk.png` | 固定首页插画，不暴露任意路径 |
-| GET | `/api/permissions` | `{ code, text }`，每次调用启动一次扫描器权限检查（30s 超时） |
+| GET | `/api/permissions` | `{ code, status, text }`，每次调用启动一次扫描器权限检查（30s 超时）。macOS 另返回 `fda: { status, revision }`，区分 `granted`、`denied`、`unknown` |
 | GET | `/api/overview` | `{ at, report, disk, scan, history(最近 30), cleanBatches, quarantine, whitelist, platform }` |
 | GET | `/api/disk` | 实时 `statfs` 容量快照 |
-| GET | `/api/scan` | `{ scan, report, at }` 扫描状态 |
+| GET | `/api/scan` | `{ scan, report, at }` 扫描状态。macOS 扫描产生权限结果时，`scan.fda` 与权限检查共用按发起顺序分配的 `revision` 序号 |
 | GET | `/api/volumes` | 卷列表与各自容量 |
 | GET | `/api/tree?path=&refresh=1` | 单层目录统计（含隐藏项、部分统计、跳过链接计数） |
 | GET | `/api/destination?path=` | 只读目标文件夹浏览 + 容量预检，不创建目录 |

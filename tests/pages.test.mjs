@@ -30,6 +30,7 @@ const cases = [
   ['space-large', (s) => s.replace('useState("home")', 'useState("space")').replace('useState("tree")', 'useState("large")')],
   ['clean-junk', (s) => s.replace('useState("home")', 'useState("clean")')],
   ['clean-photos', (s) => s.replace('useState("home")', 'useState("clean")').replace('useState("junk")', 'useState("photos")')],
+  ['software', (s) => s.replace('useState("home")', 'useState("software")')],
   ['history', (s) => s.replace('useState("home")', 'useState("history")')],
   ['settings', (s) => s.replace('useState("home")', 'useState("settings")')],
   ['home-wizard', (s) => s.replace('open: false, phase: "idle"', 'open: true, phase: "review"')],
@@ -207,6 +208,18 @@ test('Windows Python setup is shown for a missing runtime and localized', () => 
   assert.doesNotMatch(renderWithData(unrelated, 'zh', overview), /让 DSH 帮我安装 Python/)
 })
 
+test('a Python probe failure shows the cause on the scan and photo pages', () => {
+  const overview = { ...noScanOverview, platform: 'win32' }
+  const failed = (s) => s.replaceAll('const [scan, setScan] = useState({ status: "idle" });',
+    'const [scan, setScan] = useState({ status: "error", errorCode: "python_probe_failed", error: "Python 探测失败（py -3：启动被拒绝；python：探测超时）。请检查 Python 是否能在本机启动，然后重试。" });')
+  const photos = cases.find(([name]) => name === 'clean-photos')[1]
+  for (const view of [failed, (s) => photos(failed(s))]) {
+    const html = renderWithData(view, 'en', overview)
+    assert.match(html, /Could not check Python \(py -3: launch was blocked; python: check timed out\)/)
+    assert.doesNotMatch(html, /Ask DSH to install Python/)
+  }
+})
+
 test('Full Disk Access setup steps and manual fallback are localized', () => {
   const expanded = (s) => s
     .replace('useState({ status: "", text: "" })', 'useState({ status: "denied", text: "CLI details --force" })')
@@ -220,6 +233,27 @@ test('Full Disk Access setup steps and manual fallback are localized', () => {
   assert.match(en, /Press ⌘Q to quit DeepSeek Harness/)
   assert.match(en, /Return to Disk checkup and click Start scan/)
   assert.doesNotMatch(en, /--force/)
+})
+
+test('settings and the permission card use the latest definite Full Disk Access result', () => {
+  const settingsWith = (observations) => (s) => s.replace('useState("home")', 'useState("settings")')
+    .replace('useState({ status: "", text: "" })',
+      `useState(() => ${JSON.stringify(observations)}.reduce((current, observation) => recordFda(current, observation, ""), { status: "", text: "" }))`)
+  const denied = { status: 'denied', revision: 2 }
+  const unknown = { status: 'unknown', revision: 3 }
+  const granted = { status: 'granted', revision: 4 }
+
+  for (const observations of [[denied, unknown], [unknown, denied], [{ ...denied, revision: 5 }, granted]]) {
+    const html = renderWithData(settingsWith(observations), 'zh', mockOverview)
+    assert.match(html, /权限: 完全磁盘访问未授权/)
+    assert.match(html, /class="dc-permission"/)
+  }
+  const enabled = renderWithData(settingsWith([denied, granted, denied]), 'zh', noScanOverview)
+  assert.match(enabled, /权限: 完全磁盘访问已授权/)
+  assert.doesNotMatch(enabled, /class="dc-permission"/)
+  const unconfirmed = renderWithData(settingsWith([unknown]), 'zh', noScanOverview)
+  assert.match(unconfirmed, /权限: 无法确认/)
+  assert.doesNotMatch(unconfirmed, /class="dc-permission"/)
 })
 
 test('home falls back to scan report disk when host has no live snapshot', () => {
@@ -438,6 +472,21 @@ test('space tree marks cleanable portions from the fresh report', () => {
   assert.match(en, /cleanable/)
 })
 
+test('space only shows group capacity when all measured paths belong to the directory', () => {
+  const children = ['a', 'b', 'c', 'd'].map(name => ({ name, path: '/demo/' + name, kb: 4 * 1024 ** 2, isDir: true }))
+  const mutate = s => cases.find(([name]) => name === 'space-tree')[1](s)
+    .replace('const [data, setData] = useState(null);', `const [data, setData] = useState(${JSON.stringify({ path: '/demo', children })});`)
+  const report = { leftoverGroups: [
+    { baseId: 'cross', bucket: 'safe', paths: ['/demo/a/cache', '/demo/b/cache'], kb: 3 * 1024 ** 2 },
+    { baseId: 'inside', bucket: 'safe', paths: ['/demo/c/one', '/demo/c/two'], kb: 2 * 1024 ** 2 },
+    { baseId: 'pruned', bucket: 'safe', paths: ['/demo/d/cache'], kb: 1 * 1024 ** 2, kbIncomplete: true },
+  ] }
+  const html = renderWithData(mutate, 'zh', { ...mockOverview, report })
+  assert.equal((html.match(/其中 1 个路径可清理/g) || []).length, 4, 'three rows and the selected directory show counts')
+  assert.match(html, /其中可清理 2\.0 GB/)
+  assert.doesNotMatch(html, /其中可清理 [13]\.0 GB/)
+})
+
 test('moving all known large files does not mislabel the scan as missing coverage', () => {
   const mutate=s=>cases.find(([n])=>n==='space-large')[1](s).replace('useState({status:"idle",done:0,total:0})','useState({status:"done",done:1,total:1,results:[{path:"/tmp/big.bin",ok:true}]})')
   const html=renderWithData(mutate,'zh')
@@ -571,19 +620,23 @@ test('history distinguishes partial outcomes without estimating missing sizes', 
   const now = Date.now()
   const mutate = cases.find(([n]) => n === 'history')[1]
   const overview = { ...mockOverview, cleanBatches: [{
-    batchId: 'mixed', at: now - 86400000, count: 4, restorable: 1, restored: 1, purged: true,
+    batchId: 'mixed', at: now - 86400000, count: 6, restorable: 2, restored: 2, purged: true,
     items: [
       { from: '/demo/live', exists: true, kb: null },
-      { from: '/demo/restored', restored: true, restoredAt: now - 3000, kb: 1024 },
-      { from: '/demo/deleted', deleted: true, deletedAt: now - 2000, kb: 2048 },
+      { from: '/demo/restored', restored: true, restoredTo: '/demo/restored (restored)', restoredAt: now - 3000, kb: 1024, category: 'leftover', kbScope: 'path' },
+      { from: '/demo/deleted', deleted: true, deletedAt: now - 2000, kb: 2048, category: 'dev' },
       { from: '/demo/unknown', exists: false, kb: null },
+      { from: '/demo/group-restored', restored: true, restoredAt: now - 1000, kb: 4 * 1024 ** 2, category: 'leftover' },
+      { from: '/demo/group-live', exists: true, category: 'leftover' },
     ],
   }] }
   const html = renderWithData(mutate, 'en', overview)
   assert.match(html, /Restored · 1 items · About 1 MB/)
+  assert.match(html, /Restored to \/demo\/restored \(restored\)/)
   assert.match(html, /Permanently deleted · 1 items · About 2 MB/)
   assert.match(html, /Outcome unrecorded · 1 items/)
-  assert.match(html, /Still restorable · 1 items</)
+  assert.match(html, /Still restorable · 2 items</)
+  assert.doesNotMatch(html, /4\.0 GB/)
   assert.match(html, /Dashed ribbons indicate batches with missing size data/)
 })
 
@@ -637,7 +690,7 @@ test('history shows trend, regrowth and an AI analysis entry', () => {
     ],
     cleanBatches: [{
       batchId: 'b1', at: new Date(Date.now() - 3 * 86400000).toISOString(), count: 1, restorable: 1,
-      items: [{ from: '/tmp/x/media', to: '/trash/media', exists: true, kb: 100000, category: 'leftover' }],
+      items: [{ from: '/tmp/x/media', to: '/trash/media', exists: true, kb: 100000, category: 'leftover', kbScope: 'path' }],
     }],
   }
   const mutate = cases.find(([n]) => n === 'history')[1]
