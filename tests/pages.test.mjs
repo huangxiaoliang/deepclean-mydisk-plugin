@@ -250,15 +250,18 @@ test('settings page shows readable environment facts and contact links', () => {
     'coolway.me@gmail.com',
     'huang_xiao_liang',
     'huangxiaoliang/deepclean-mydisk-plugin',
-    '★ Star 项目',
+    '⭐ Star 项目',
     '问题反馈',
     'href="mailto:coolway.me@gmail.com"',
     'href="https://github.com/huangxiaoliang/deepclean-mydisk-plugin"',
     'href="https://github.com/huangxiaoliang/deepclean-mydisk-plugin/issues/new/choose"',
   ]) assert.ok(zh.includes(t), t)
+  // Star 按钮与问题反馈紧跟 GitHub 地址之后，且顺序固定。
+  const order = ['huangxiaoliang/deepclean-mydisk-plugin', '⭐ Star 项目', '问题反馈']
+  for (let i = 1; i < order.length; i++) assert.ok(zh.indexOf(order[i]) > zh.indexOf(order[i - 1]), `${order[i]} should follow ${order[i - 1]}`)
 
   const en = renderWithData(mutate, 'en', overview)
-  for (const t of ['Platform: macOS', 'Permission: Full Disk Access granted', 'Trash (this plugin): /Users/test/.Trash', 'Feedback &amp; contact', 'Star project', 'Issues']) {
+  for (const t of ['Platform: macOS', 'Permission: Full Disk Access granted', 'Trash (this plugin): /Users/test/.Trash', 'Feedback &amp; contact', '⭐ Star project', 'Issues']) {
     assert.ok(en.includes(t), t)
   }
 

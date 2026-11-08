@@ -5,6 +5,8 @@
 - 改进（AI 复核）：复核提示词为每个已选条目附带程序原因码（`running` / `running-unknown` / `protected` / `unknown` / `cache-part` / `incomplete-size` / `optional`）与原因码统计，要求模型重点核实运行中、受保护与可选清理项；`buildRows` 在运行中降级时写入结构化 `running` / `runningUnknown` 标记
 - 改进（软件卸载闭环）：卸载完成后的「重新体检并查看残留」会按该 App 的 bundle id（精确）或显示名（前缀）过滤「应用残留」分类，并显示可清除的筛选横幅；未匹配时说明可能已被卸载器清理干净
 - 宿主：`/api/overview` 增加缓存 5 分钟的 `snapshots`（APFS 本地快照数；非 macOS 或读取失败为 `null`），`/api/reclaim` 的快照统计复用同一缓存
+- 界面（设置页）：「★ Star 项目」改为实心蓝底加粗的「⭐ Star 项目」，与「问题反馈」一起移到 GitHub 地址同一行（窄窗自动换行）
+- 文档（市场详情页）：徽章改为同一行横排；把「反馈与支持 / Feedback and support」精简并入顶部快速信息（仓库 / 安装 / 反馈 / 更新日志），`README.md` 与中英详情页同步
 - 测试 376（macOS 372 pass / 4 skip；Windows 按 376 总数应为 367 pass / 9 skip，以 CI 实测为准），新增诊断分支、overview `snapshots`、复核原因码与残留过滤回归
 
 ## 0.14.5 — 2026-11-08

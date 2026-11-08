@@ -1,10 +1,6 @@
 # DeepClean MyDisk
 
-[![tests](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/actions/workflows/tests.yml)
-[![Windows acceptance](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/actions/workflows/windows-acceptance.yml/badge.svg?branch=main)](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/actions/workflows/windows-acceptance.yml)
-[![npm](https://img.shields.io/npm/v/deepclean-mydisk.svg)](https://www.npmjs.com/package/deepclean-mydisk)
-[![license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/LICENSE)
-[![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/huangxiaoliang/deepclean-mydisk-plugin#install)
+[![tests](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/actions/workflows/tests.yml) [![Windows acceptance](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/actions/workflows/windows-acceptance.yml/badge.svg?branch=main)](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/actions/workflows/windows-acceptance.yml) [![npm](https://img.shields.io/npm/v/deepclean-mydisk.svg)](https://www.npmjs.com/package/deepclean-mydisk) [![license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/LICENSE) [![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/huangxiaoliang/deepclean-mydisk-plugin#install)
 
 English | [简体中文](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/docs/plugin/DETAIL.zh.md)
 
@@ -12,7 +8,7 @@ A DSH plugin with a native sidebar for macOS and Windows. **Scans are read-only 
 
 - Repository: [huangxiaoliang/deepclean-mydisk-plugin](https://github.com/huangxiaoliang/deepclean-mydisk-plugin)
 - Install: `dsh plugin --profile <name> add deepclean-mydisk` (npm); it can also be installed from GitHub or a local directory
-- Feedback: [GitHub Issues](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/issues/new/choose) · report security issues privately per [SECURITY.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/SECURITY.md)
+- Feedback: [GitHub Issues](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/issues/new/choose) · report security issues privately per [SECURITY.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/SECURITY.md) (coolway.me@gmail.com); see [SUPPORT.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/SUPPORT.md) for the full support policy
 - Changelog: [CHANGELOG.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/CHANGELOG.md)
 
 ![Checkup home screen](shot-home.jpg)
@@ -153,17 +149,6 @@ Open **Software → Scan software** and search by name, package name, or install
 - Fine-grained leftover splitting only recognizes cache-like subdirectory names (Caches/tmp/Code Cache/GPUCache/CacheStorage, etc.); if the cache folder uses another name or the app is running, the whole group stays in "needs review".
 - AI entry points depend on the current DSH session and model; without a session you can only copy the prompt, and the prompt carries a report summary rather than the full report, so answers can be wrong.
 - Plugin update depends on the optional DSH plugin manager service: older DSH builds without it, or a `link:` development install, only show the Settings state without the header button.
-
-## Feedback and support
-
-- **Contact email**: **coolway.me@gmail.com**
-- **In the panel**: Settings → Feedback & contact lists the email address, WeChat ID, and GitHub repository, plus a Star button that opens the repository page (sign in to GitHub to star it).
-- **Bugs / usage questions / feature requests**: open a [GitHub issue](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/issues/new/choose) (the issue templates are preferred).
-- **Security issues** (deleting outside the allow-set, path escapes, failed restores, privacy leaks): do not open a public issue; email **coolway.me@gmail.com** with details, and see [SECURITY.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/SECURITY.md).
-- **Before filing**: restart DSH after any plugin change; authorize first if the permission check has not been granted.
-- **Please include**: plugin version, DSH version, OS version, the failing feature, error code or failing stage, reproduction steps, and redacted logs or screenshots.
-- **Never paste**: full disk paths, user names, file names, chat content, or raw audit-log entries; use `~/…` and `%LOCALAPPDATA%\…` instead.
-- See [SUPPORT.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/SUPPORT.md) for the full support policy.
 
 ## Development and testing
 

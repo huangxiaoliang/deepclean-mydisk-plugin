@@ -1,10 +1,6 @@
 # DeepClean MyDisk
 
-[![tests](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/actions/workflows/tests.yml)
-[![Windows acceptance](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/actions/workflows/windows-acceptance.yml/badge.svg?branch=main)](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/actions/workflows/windows-acceptance.yml)
-[![npm](https://img.shields.io/npm/v/deepclean-mydisk.svg)](https://www.npmjs.com/package/deepclean-mydisk)
-[![license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/LICENSE)
-[![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/huangxiaoliang/deepclean-mydisk-plugin#安装)
+[![tests](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/actions/workflows/tests.yml) [![Windows acceptance](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/actions/workflows/windows-acceptance.yml/badge.svg?branch=main)](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/actions/workflows/windows-acceptance.yml) [![npm](https://img.shields.io/npm/v/deepclean-mydisk.svg)](https://www.npmjs.com/package/deepclean-mydisk) [![license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/LICENSE) [![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/huangxiaoliang/deepclean-mydisk-plugin#安装)
 
 [English](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/docs/plugin/DETAIL.en.md) | 简体中文
 
@@ -12,7 +8,7 @@ DSH 插件：macOS / Windows 原生侧边栏磁盘工具。**扫描只读，清�
 
 - 仓库：[huangxiaoliang/deepclean-mydisk-plugin](https://github.com/huangxiaoliang/deepclean-mydisk-plugin)
 - 安装：`dsh plugin --profile <name> add deepclean-mydisk`（npm）；也可从 GitHub 或本地目录安装
-- 反馈：[GitHub Issues](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/issues/new/choose) · 安全问题按 [SECURITY.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/SECURITY.md) 私下发邮件
+- 反馈：[GitHub Issues](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/issues/new/choose) · 安全问题按 [SECURITY.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/SECURITY.md) 私下发邮件（coolway.me@gmail.com）；详细支持说明见 [SUPPORT.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/SUPPORT.md)
 - 更新日志：[CHANGELOG.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/CHANGELOG.md)
 
 ![体检首页](shot-home.jpg)
@@ -153,17 +149,6 @@ dsh plugin --profile <name> add link:/绝对路径/deepclean-mydisk-plugin
 - 残留细粒度拆分只认目录名像缓存的子目录（Caches/tmp/Code Cache/GPUCache/CacheStorage 等）；缓存目录用了别的名字或 App 仍在运行时，整组仍留在「需确认」。
 - AI 入口依赖当前 DSH 会话与模型；没有打开的会话时只能复制提示词，提示词带的是报告摘要而不是完整报告，模型也可能答错。
 - 插件更新依赖 DSH 插件管理的可选服务：旧版 DSH 未提供该服务、或当前是 `link:` 本地开发安装时，只显示设置页状态，不显示顶部「更新插件」按钮。
-
-## 反馈与支持
-
-- **联系邮箱**：**coolway.me@gmail.com**
-- **面板内**：设置页「反馈与联系」直接提供邮箱、微信与 GitHub 仓库地址，以及打开仓库页的 Star 入口（Star 仍需在 GitHub 登录后手动点）。
-- **Bug / 使用问题 / 功能建议**：请开 [GitHub Issue](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/issues/new/choose)（推荐用问题模板）。
-- **安全问题**（越权删除、路径逃逸、恢复失败、隐私泄露等）：不要公开提 Issue，请发邮件到 **coolway.me@gmail.com**，详见 [SECURITY.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/SECURITY.md)。
-- **提交前**：更新或改过插件后先重启 DSH；权限检查未授权时先授权再重试。
-- **请附上**：插件版本、DSH 版本、系统版本、出问题的功能、错误码/失败阶段、复现步骤、已脱敏的日志或截图。
-- **不要贴**：完整磁盘路径、用户名、文件名、聊天记录或未脱敏的审计日志原文；用 `~/…`、`%LOCALAPPDATA%\…` 代替。
-- 详细支持说明见 [SUPPORT.md](https://github.com/huangxiaoliang/deepclean-mydisk-plugin/blob/main/SUPPORT.md)。
 
 ## 开发与测试
 
