@@ -1,6 +1,6 @@
 {
   "name": "deepclean-mydisk",
-  "version": "0.14.5",
+  "version": "0.14.6",
   "description": "Read-only disk audit and cleanup for macOS and Windows: caches, leftovers, similar photos, space breakdown, and cross-disk file moves.",
   "author": "huangxiaoliang",
   "keywords": [
