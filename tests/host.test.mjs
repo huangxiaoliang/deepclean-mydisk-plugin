@@ -90,6 +90,8 @@ test('overview exposes live disk usage before any scan', async () => {
   assert.ok(body.disk.free >= 0)
   assert.ok(Math.abs(body.disk.used + body.disk.free - body.disk.total) < 2, 'used + free == total')
   assert.ok(typeof body.disk.mount === 'string' && body.disk.mount.length > 0)
+  assert.ok('snapshots' in body, 'overview reports the cached local snapshot count')
+  assert.ok(body.snapshots === null || body.snapshots >= 0, 'snapshots is unknown (null) or a count')
   assert.ok(Date.now() - body.disk.at < 60000, 'snapshot is fresh')
 })
 

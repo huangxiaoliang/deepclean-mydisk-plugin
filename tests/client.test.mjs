@@ -143,7 +143,7 @@ function loadInstrumented(lang = 'zh') {
   globalThis.localStorage = { getItem: () => lang, setItem: () => {} }
   let def
   globalThis.window = { __ModuleLoader__: { load(d) { def = d } } }
-  eval(source.replace('exports.apply = apply;', 'exports.__test = { aiReportDigest, aiItemPrompt, aiReviewPrompt, aiInspectPrompt, aiFailurePrompt, aiHistoryPrompt, aiSoftwarePrompt, aiSoftwareRules, aiRules, aiEvidenceText, untrustedText, safeDisplayPath, aiEvidenceLines, buildRows, photoDefaultSelection };\nexports.apply = apply;'))
+  eval(source.replace('exports.apply = apply;', 'exports.__test = { aiReportDigest, aiItemPrompt, aiReviewPrompt, aiInspectPrompt, aiFailurePrompt, aiHistoryPrompt, aiSoftwarePrompt, aiSoftwareRules, aiRules, aiEvidenceText, untrustedText, safeDisplayPath, aiEvidenceLines, buildRows, photoDefaultSelection, releaseDiagnosis, matchesResidual, reviewReasonCodeList };\nexports.apply = apply;'))
   const mod = def.factory((id) => require(id))
   mod.apply({ slots: { inject(_n, cb) { cb() }, register() { return () => {} } } })
   return mod.__test
@@ -326,6 +326,51 @@ test('software job prompt explains status and error codes with observed free-spa
   assert.match(en, /Installation still exists/)
 })
 
+test('release diagnosis explains a batch that is still restorable', () => {
+  const { releaseDiagnosis } = loadInstrumented('zh')
+  const d = releaseDiagnosis('zh', {
+    trash: '废纸篓', platform: 'darwin',
+    batches: [{ batchId: 'b1', restorable: 3, restored: 0, purged: false, count: 3 }],
+    batchIds: ['b1'], quarantine: { kb: 2048 }, snapshots: 0, allocated: 512 * 1024 * 1024,
+  })
+  assert.match(d.headline, /仍在废纸篓里/)
+  assert.match(d.lines.join('\n'), /永久删除后才释放/)
+  assert.match(d.lines.join('\n'), /预计释放约 512\.0M/)
+  assert.match(d.lines.join('\n'), /合计占用 2\.0M/)
+  const en = releaseDiagnosis('en', { trash: 'Trash', platform: 'darwin', batches: [{ batchId: 'b1', restorable: 1 }], batchIds: ['b1'], quarantine: { kb: 0 } })
+  assert.match(en.headline, /still in the Trash/)
+})
+
+test('release diagnosis explains a purged batch with snapshots and lag', () => {
+  const { releaseDiagnosis } = loadInstrumented('zh')
+  const base = {
+    trash: '废纸篓', platform: 'darwin',
+    batches: [{ batchId: 'b1', restorable: 0, restored: 0, purged: true, count: 3 }],
+    batchIds: ['b1'], quarantine: { kb: 0 },
+  }
+  const withSnapshots = releaseDiagnosis('zh', { ...base, snapshots: 2, allocated: 1000, freeBefore: 1000, freeAfter: 1100 })
+  assert.match(withSnapshots.headline, /可用空间只增加了|可用空间增加了/)
+  assert.match(withSnapshots.lines.join('\n'), /APFS 本地快照/)
+  const released = releaseDiagnosis('zh', { ...base, snapshots: 0, allocated: 1000, freeBefore: 1000, freeAfter: 1600 })
+  assert.match(released.headline, /可用空间增加了/)
+  const win = releaseDiagnosis('zh', { ...base, platform: 'win32', snapshots: null })
+  assert.match(win.lines.join('\n'), /卷影副本/)
+  const unknown = releaseDiagnosis('zh', { trash: '隔离区', platform: 'win32', batches: [{ batchId: 'b1', restorable: 0, purged: true }], batchId: 'b1', quarantine: { kb: 0 } })
+  assert.match(unknown.headline, /系统完成回收后回补/)
+})
+
+test('release diagnosis covers undone batches, quarantine-only and regrowth', () => {
+  const { releaseDiagnosis } = loadInstrumented('zh')
+  const undone = releaseDiagnosis('zh', { trash: '废纸篓', batches: [{ batchId: 'b1', restorable: 0, restored: 2, purged: false }], batchIds: ['b1'], quarantine: { kb: 0 } })
+  assert.match(undone.headline, /已经被恢复/)
+  const quarantine = releaseDiagnosis('zh', { trash: '废纸篓', batches: [], quarantine: { kb: 1024 } })
+  assert.match(quarantine.headline, /里还有 1\.0M 没有释放/)
+  const regrowth = releaseDiagnosis('zh', { trash: '废纸篓', batches: [{ batchId: 'b1', restorable: 0, purged: true }], batchId: 'b1', quarantine: { kb: 0 }, regrowthCount: 4 })
+  assert.match(regrowth.lines.join('\n'), /另有 4 项清理后又长回来/)
+  const none = releaseDiagnosis('zh', { trash: '废纸篓', batches: [], quarantine: { kb: 0 } })
+  assert.match(none.headline, /没有仍在隔离区的清理批次/)
+})
+
 test('AI rules add read-only, freshness and tool-availability constraints', () => {
   const { aiRules } = loadInstrumented('zh')
   const zh = aiRules('zh')
@@ -392,6 +437,38 @@ test('review prompt caps expanded rows at 30 without breaking the total count', 
   assert.match(text, /另有 5 项未展开/)
   const section = text.slice(text.indexOf('## 我准备清理的条目'))
   assert.equal(section.split('\n').filter((line) => line.startsWith('  - r')).length, 30, 'only 30 rows are expanded')
+})
+
+test('review prompt marks structured reason codes and summarizes them', () => {
+  const { aiReviewPrompt, reviewReasonCodeList } = loadInstrumented('zh')
+  const rows = [
+    { id: 'a:1', inspectKey: 'appCaches:0', category: 'app', name: 'Running App · 应用缓存', paths: ['/Users/a/L/app'], kb: 2048, note: '缓存', checkable: false, recommended: false, protected: false, running: true, runningUnknown: false },
+    { id: 'g:1', inspectKey: 'leftover:0', category: 'leftover', name: 'com.x', paths: ['/Users/a/L/Containers/com.x'], kb: 1024, note: '未知来源', checkable: true, recommended: false, protected: false, unknown: true, cachePart: false },
+    { id: 'd:1', inspectKey: 'devCaches:0', category: 'dev', name: 'pnpm 缓存', paths: ['/Users/a/pnpm'], kb: 512, note: '缓存', checkable: true, recommended: true, protected: false },
+  ]
+  assert.deepEqual(reviewReasonCodeList(rows[0]), ['running'])
+  assert.deepEqual(reviewReasonCodeList(rows[1]), ['unknown', 'optional'])
+  assert.deepEqual(reviewReasonCodeList(rows[2]), [])
+  const report = { platform: 'darwin', home: '/Users/a', estimate: {}, bigFiles: [] }
+  const text = aiReviewPrompt('zh', report, rows, rows, 3584, Date.now(), '废纸篓', 3)
+  assert.match(text, /程序原因码统计：optional 1, running 1, unknown 1/)
+  assert.match(text, /\[running\]/)
+  assert.match(text, /\[unknown, optional\]/)
+  assert.match(text, /原因码：\[running\]=运行中/, 'legend is included')
+  assert.match(text, /重点核实带 \[running\]、\[protected\]、\[optional\]/)
+  const en = aiReviewPrompt('en', report, rows, rows, 3584, Date.now(), 'Trash', 3)
+  assert.match(en, /Reason codes: \[running\]=app running/)
+})
+
+test('matchesResidual matches bundle ids exactly and display names by prefix', () => {
+  const { matchesResidual } = loadInstrumented('zh')
+  const row = { baseId: 'com.demo.one', name: 'Demo · 缓存' }
+  assert.equal(matchesResidual(row, { bundleId: 'com.demo.one', name: 'Demo' }), true)
+  assert.equal(matchesResidual(row, { bundleId: 'com.demo', name: '' }), false, 'bundle ids are exact')
+  assert.equal(matchesResidual({ baseId: 'com.other', name: 'Demo Helper' }, { name: 'Demo' }), true, 'display names match by prefix')
+  assert.equal(matchesResidual(row, { name: 'De' }), false, 'very short names are ignored')
+  assert.equal(matchesResidual({ baseId: 'com.x', name: 'Something', paths: ['/Users/a/Demo'] }, { name: 'Demo' }), false, 'paths are not matched')
+  assert.equal(matchesResidual(row, null), false)
 })
 
 test('English evidence lines use a half-width colon', () => {

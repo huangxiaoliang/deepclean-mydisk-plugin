@@ -146,7 +146,7 @@ const server = http.createServer(async (req, res) => {
       if (body.confirm !== true) return json({ error: 'invalid_request' }, 400)
       return json({ ok: true, from: '0.13.1', to: '0.14.0', application: 'restart-required', stage: 'install', restartRequired: true })
     }
-    if (api === '/overview') return json({ at: state.at, report: state.report, disk: disk(), scan: state.scan, whitelist: state.whitelist, platform: pythonMissing ? 'win32' : 'darwin', history: state.history, cleanBatches: state.batches, quarantine: quarantine() })
+    if (api === '/overview') return json({ at: state.at, report: state.report, disk: disk(), scan: state.scan, whitelist: state.whitelist, platform: pythonMissing ? 'win32' : 'darwin', snapshots: pythonMissing ? null : 2, history: state.history, cleanBatches: state.batches, quarantine: quarantine() })
     if (api === '/quarantine') return json(quarantine())
     if (api === '/reclaim') { const n = (body.paths || []).length; return json({ logicalBytes: n * 104857600, allocatedBytes: n * 100663296, files: n * 12, truncated: false, snapshots: 2 }) }
     if (api === '/quarantine/purge' || api === '/purge') {

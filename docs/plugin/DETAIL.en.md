@@ -51,8 +51,8 @@ Restart DSH after installing or changing host / client code.
 - **Checkup (home)**: live capacity, start scan / view cleanup suggestions, AI explanation, scan options, checkup wizard, last cleanup;
 - **Clean**: junk cleanup (all items plus 7 content categories, risk tiers, search and sorting, per-item "Ask AI" and a pre-cleanup review) and similar photos;
 - **Space**: directory breakdown (tide-band chart, breadcrumbs, drill-down) and large files (filters, move, "What is this");
-- **Software**: desktop apps and terminal tools (actionable items sorted by name, blocked items grouped by reason), uninstall preview, execution and verification, AI explanations;
-- **History**: software operations, trends and re-clean, quarantine/Trash occupancy and permanent deletion, scan history, restorable batches, AI trend analysis;
+- **Software**: desktop apps and terminal tools (actionable items sorted by name, blocked items grouped by reason), uninstall preview, execution and verification, leftover lookup for the uninstalled app, AI explanations;
+- **History**: software operations, trends and re-clean, quarantine/Trash occupancy and permanent deletion, scan history, restorable batches, a "why didn't free space increase?" diagnosis, AI trend analysis;
 - **Settings**: safety notes, Chinese/English switch, protected paths, plugin update state, permission check, environment info, feedback and contact.
 
 ## Features

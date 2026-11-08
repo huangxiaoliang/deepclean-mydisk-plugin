@@ -132,14 +132,16 @@ const mockPhotos = { generatedAt: Date.now(), scanned: 100, compared: 100, elaps
   { id: 'g1', items: [{ path: '/tmp/p1/a.jpg', kb: 2000, mtime: 1 }, { path: '/tmp/p2/b.jpg', kb: 1500, mtime: 2 }], totalKb: 3500, wastedKb: 1500 },
 ] }
 
-function renderWithData(mutate, lang, overview = mockOverview, photos = mockPhotos, ai = null) {
+function renderWithData(mutate, lang, overview = mockOverview, photos = mockPhotos, ai = null, residual = null) {
   const source = mutate(base)
     .replace('const [overview, setOverview] = useState(null);', 'const [overview, setOverview] = useState(globalThis.__TEST_OVERVIEW__ || null);')
     .replace('const [liveDisk, setLiveDisk] = useState(null);', 'const [liveDisk, setLiveDisk] = useState(globalThis.__TEST_DISK__ || null);')
     .replace('const [result, setResult] = useState(null);', 'const [result, setResult] = useState(globalThis.__TEST_PHOTOS__ || null);')
+    .replace('const [residualFilter, setResidualFilter] = useState(null);', 'const [residualFilter, setResidualFilter] = useState(globalThis.__TEST_RESIDUAL__ || null);')
   globalThis.__TEST_OVERVIEW__ = overview
   globalThis.__TEST_DISK__ = overview.disk || null
   globalThis.__TEST_PHOTOS__ = photos
+  globalThis.__TEST_RESIDUAL__ = residual
   globalThis.localStorage = {
     getItem: (k) => (k === 'deepclean-lang' ? lang : k === 'deepclean-safety-ok' ? '1' : null),
     setItem: () => {},
@@ -693,6 +695,23 @@ test('clean page shows installed app cache category', () => {
   assert.match(en, /App cache/)
 })
 
+test('completed uninstall scans leftovers filtered to that software', () => {
+  const cleanCase = cases.find(([n]) => n === 'clean-junk')[1]
+  const mutate = (s) => cleanCase(s)
+    .replace('const [tab, setTab] = useState("all");', 'const [tab, setTab] = useState("leftover");')
+  const filter = { name: 'Test Media', bundleId: 'com.test.media' }
+  const zh = renderWithData(mutate, 'zh', mockOverview, mockPhotos, null, filter)
+  assert.match(zh, /仅显示与「Test Media」相关的残留/)
+  assert.match(zh, /Test Media/)
+  assert.doesNotMatch(zh, /Test Chat/, 'unrelated leftovers are filtered out')
+  assert.match(zh, /显示全部/)
+  const en = renderWithData(mutate, 'en', mockOverview, mockPhotos, null, filter)
+  assert.match(en, /Showing only leftovers related to/, 'english filter banner')
+  assert.match(en, /Show all/)
+  const empty = renderWithData(mutate, 'zh', mockOverview, mockPhotos, null, { name: 'No Such App', bundleId: 'com.none' })
+  assert.match(empty, /没有找到与该软件相关的残留/)
+})
+
 test('windows admin and in-use temp caches are view-only', () => {
   const mutate = cases.find(([n]) => n === 'clean-junk')[1]
   const overview = { ...mockOverview, platform: 'win32', report: { ...mockOverview.report,
@@ -813,6 +832,31 @@ test('history offers permanent deletion of a batch', () => {
   const mutate = cases.find(([n]) => n === 'history')[1]
   const zh = renderWithData(mutate, 'zh')
   assert.match(zh, /永久删除此批次/)
+})
+
+test('history explains why free space did not increase', () => {
+  const mutate = cases.find(([n]) => n === 'history')[1]
+  const now = Date.now()
+  const overview = {
+    ...mockOverview,
+    snapshots: 2,
+    quarantine: { root: '/Users/test/.Trash', kb: 4096, batches: [] },
+    cleanBatches: [{ batchId: 'b1', at: now - 3600000, count: 3, restorable: 2, purged: false, items: [{ from: '/demo/a', exists: true, kb: 1024 }] }],
+  }
+  const zh = renderWithData(mutate, 'zh', overview)
+  assert.ok(zh.includes('为什么可用空间没变多？'), 'diagnosis entry is visible')
+  assert.match(zh, /仍在废纸篓里/)
+  assert.match(zh, /永久删除后才释放/)
+  const en = renderWithData(mutate, 'en', overview)
+  assert.match(en, /Why didn.{0,6}t free space increase\?/, 'english diagnosis entry')
+  assert.match(en, /still in the Trash/)
+
+  const purged = renderWithData(mutate, 'zh', {
+    ...overview,
+    cleanBatches: [{ batchId: 'b2', at: now - 1000, count: 3, restorable: 0, restored: 0, purged: true, items: [] }],
+  })
+  assert.match(purged, /文件已永久删除/)
+  assert.match(purged, /APFS 本地快照/)
 })
 
 test('history distinguishes partial outcomes without estimating missing sizes', () => {

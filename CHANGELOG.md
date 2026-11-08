@@ -1,5 +1,12 @@
 # deepclean-mydisk 插件变更
 
+## 未发布
+- 新增（诊断）：「为什么可用空间没变多？」确定性诊断——清理完成页与历史批次详情按审计批次状态（仍可恢复 / 已恢复 / 已永久删除）、APFS 本地快照数、隔离区占用与观测到的可用空间差值选择解释分支；Windows 说明卷影副本与统计滞后，macOS 说明快照过期后才回补；选分支由程序完成，不依赖模型，也不参与任何放行或勾选
+- 改进（AI 复核）：复核提示词为每个已选条目附带程序原因码（`running` / `running-unknown` / `protected` / `unknown` / `cache-part` / `incomplete-size` / `optional`）与原因码统计，要求模型重点核实运行中、受保护与可选清理项；`buildRows` 在运行中降级时写入结构化 `running` / `runningUnknown` 标记
+- 改进（软件卸载闭环）：卸载完成后的「重新体检并查看残留」会按该 App 的 bundle id（精确）或显示名（前缀）过滤「应用残留」分类，并显示可清除的筛选横幅；未匹配时说明可能已被卸载器清理干净
+- 宿主：`/api/overview` 增加缓存 5 分钟的 `snapshots`（APFS 本地快照数；非 macOS 或读取失败为 `null`），`/api/reclaim` 的快照统计复用同一缓存
+- 测试 376（macOS 372 pass / 4 skip；Windows 按 376 总数应为 367 pass / 9 skip，以 CI 实测为准），新增诊断分支、overview `snapshots`、复核原因码与残留过滤回归
+
 ## 0.14.5 — 2026-11-08
 - 修复（软件扫描，Windows）：读取注册表 `UninstallString` 并解析成「单个绝对 `.exe` + argv」的官方卸载器；`cmd`/`powershell`/`rundll32` 等解释器、相对路径、UNC 与无法解析的字符串保持 `vendor_uninstaller_required`；`msiexec /X`/`/I` 走 MSI 分支。计划展示完整命令，执行前用文件戳核对，厂商卸载器提前返回时在 1.5s×3 内重复核验再判 `still_installed`
 - 新增 `vendor` 执行器与 `parseVendorUninstall`；执行边界拒绝解释器与整串命令行
