@@ -6,7 +6,7 @@ import path from 'node:path'
 import { EventEmitter } from 'node:events'
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dc-software-http-')))
 process.env.DSH_HOME = root
-const { apply } = await import('../lib/index.js')
+const { apply, validateVendorCommand } = await import('../lib/index.js')
 const routes = [], tools = []
 apply({ tools: { register: t => tools.push(t) }, inject: (_names, cb) => cb({ webServer: { register: r => { routes.push(r); return () => {} } } }), effect() {} })
 test.after(() => fs.rmSync(root, { recursive: true, force: true }))
@@ -35,4 +35,18 @@ test('write APIs reject missing token, arbitrary plans and wrong methods', async
   assert.equal(result.body.error, 'plan_missing')
   assert.equal((await call('software/execute', 'GET', headers)).code, 405)
   assert.equal(tools.length, 5, 'no model uninstall tool is registered')
+})
+
+test('the vendor execution boundary only accepts one absolute .exe plus argv', () => {
+  assert.equal(validateVendorCommand({ file: 'C:\\Program Files\\Git\\unins000.exe', args: ['/VERYSILENT'] }, 'win32'), '')
+  assert.equal(validateVendorCommand({ file: 'C:\\Program Files\\App\\unins000.exe', args: [] }, 'win32'), '')
+  for (const file of ['cmd.exe', 'C:\\Windows\\System32\\cmd.exe', 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', 'C:\\Windows\\System32\\rundll32.exe']) {
+    assert.equal(validateVendorCommand({ file, args: [] }, 'win32'), 'unsafe_uninstaller', file + ' is an interpreter')
+  }
+  assert.equal(validateVendorCommand({ file: 'uninstall.exe', args: [] }, 'win32'), 'unsafe_uninstaller', 'relative paths are refused')
+  assert.equal(validateVendorCommand({ file: '\\\\server\\share\\unins.exe', args: [] }, 'win32'), 'unsafe_uninstaller', 'UNC paths are refused')
+  assert.equal(validateVendorCommand({ file: 'C:\\App\\unins.msi', args: [] }, 'win32'), 'unsafe_uninstaller', 'only .exe is accepted')
+  assert.equal(validateVendorCommand({ file: 'C:\\App\\unins.exe', args: ['line\nbreak'] }, 'win32'), 'unsafe_uninstaller')
+  assert.equal(validateVendorCommand({ file: 'C:\\App\\unins.exe', args: Array.from({ length: 41 }, () => 'x') }, 'win32'), 'unsafe_uninstaller')
+  assert.equal(validateVendorCommand({ file: 'C:\\App\\unins.exe', args: [] }, 'darwin'), 'unsupported_platform')
 })

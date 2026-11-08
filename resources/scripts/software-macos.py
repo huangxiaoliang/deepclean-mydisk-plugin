@@ -38,8 +38,17 @@ def inventory():
                     bid = info.get('CFBundleIdentifier', '')
                     protected = str(app).startswith('/System/') or bid.startswith('com.apple.') or any(word in (bid + app.name).lower() for word in ('deepseek', 'deepclean', 'harness'))
                     helpers = any((app / 'Contents' / p).exists() for p in ('Library/LoginItems', 'Library/LaunchServices', 'Library/SystemExtensions'))
-                    running = processes is None or str(app) + '/' in processes
-                    blocked = 'protected_system' if protected else 'application_running' if running else 'vendor_uninstaller_required' if helpers else ''
+                    if protected:
+                        blocked = 'protected_system'
+                    elif processes is None:
+                        # Fail closed, but say why: a failed process snapshot is not "the app is running".
+                        blocked = 'process_snapshot_unavailable'
+                    elif str(app) + '/' in processes:
+                        blocked = 'application_running'
+                    elif helpers:
+                        blocked = 'vendor_uninstaller_required'
+                    else:
+                        blocked = ''
                     stat = app.stat()
                     items.append(dict(key=bid or str(app), name=info.get('CFBundleDisplayName') or info.get('CFBundleName') or app.stem,
                                       version=str(info.get('CFBundleShortVersionString', info.get('CFBundleVersion', ''))),

@@ -29,4 +29,8 @@ test('windows inventory script resolves Start menu names and protects resource p
     if (item.resourcePackage) assert.equal(item.blockReason, 'protected_system')
   }
   assert.ok(appx.some((item) => item.startName), 'at least one installed package has a Start menu display name')
+  const registry = data.items.filter((item) => item.action !== 'appx')
+  assert.ok(registry.every((item) => typeof item.uninstallString === 'string'), 'registry entries expose their registered uninstaller for parsing')
+  assert.ok(registry.some((item) => item.uninstallString), 'at least one desktop program records an uninstall string')
+  assert.ok(registry.every((item) => item.estimatedSizeKb === null || typeof item.estimatedSizeKb === 'number'), 'installer-reported sizes are numeric or null')
 })

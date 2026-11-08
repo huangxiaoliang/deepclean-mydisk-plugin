@@ -34,6 +34,19 @@ function withUpdate(head) {
   }
 }
 
+const SOFTWARE_SIZE_ITEMS =
+  '{ id: "big", sourceId: "desktop", provider: "macOS", name: "Big App", version: "1", kind: "desktop", location: "/Applications/Big.app", executable: true, warnings: [], sizeBytes: 2147483648, sizePartial: false, sizeSource: "measured" },' +
+  '{ id: "small", sourceId: "desktop", provider: "macOS", name: "Small App", version: "1", kind: "desktop", location: "/Applications/Small.app", executable: true, warnings: [], sizeBytes: 1048576, sizePartial: true, sizeSource: "measured" },' +
+  '{ id: "registry", sourceId: "desktop", provider: "macOS", name: "Registry App", version: "1", kind: "desktop", location: "/Applications/Registry.app", executable: true, warnings: [], sizeBytes: 5242880, sizePartial: true, sizeSource: "registry" },' +
+  '{ id: "unknown", sourceId: "desktop", provider: "macOS", name: "Unknown App", version: "1", kind: "desktop", location: "/Applications/Unknown.app", executable: true, warnings: [] }'
+
+function withSoftwareSizes(s, sort = null, sizes = 'pending: false, done: true, measured: 4, total: 4, truncated: false') {
+  let out = s.replace('useState("home")', 'useState("software")').replace('useState({ items: [], sources: [], jobs: [] })',
+    `useState({ at: 1, sources: [{ id: "desktop", name: "macOS", location: "", status: "ok" }], jobs: [], sizes: { ${sizes} }, items: [${SOFTWARE_SIZE_ITEMS}] })`)
+  if (sort) out = out.replace("useState({ key: 'name', dir: 'asc' })", `useState({ key: '${sort.key}', dir: '${sort.dir}' })`)
+  return out
+}
+
 const cases = [
   ['home', (s) => s],
   ['space-tree', (s) => s.replace('useState("home")', 'useState("space")')],
@@ -54,6 +67,12 @@ const cases = [
     '{ id: "run", sourceId: "desktop", provider: "macOS", name: "Running App", version: "1", kind: "desktop", location: "/Applications/Running.app", executable: false, blockReason: "application_running", warnings: [] },' +
     '{ id: "prot", sourceId: "desktop", provider: "macOS", name: "Protected App", version: "1", kind: "desktop", location: "/System/Applications/Protected.app", executable: false, blockReason: "protected_system", warnings: [] }' +
   '] })')],
+  ['software-process-unknown', (s) => s.replace('useState("home")', 'useState("software")').replace('useState({ items: [], sources: [], jobs: [] })', 'useState({ at: 1, sources: [{ id: "desktop", name: "macOS", location: "", status: "ok" }], jobs: [], items: [' +
+    '{ id: "unknown-state", sourceId: "desktop", provider: "macOS", name: "Unknown State App", version: "1", kind: "desktop", location: "/Applications/Unknown.app", executable: false, blockReason: "process_snapshot_unavailable", warnings: [] }' +
+  '] })')],
+  ['software-sizes', (s) => withSoftwareSizes(s)],
+  ['software-sizes-sorted', (s) => withSoftwareSizes(s, { key: 'size', dir: 'desc' })],
+  ['software-sizes-pending', (s) => withSoftwareSizes(s, null, 'pending: true, done: false, measured: 1, total: 4, truncated: false')],
   ['history', (s) => s.replace('useState("home")', 'useState("history")')],
   ['settings', (s) => s.replace('useState("home")', 'useState("settings")')],
   ['home-update-badge', withUpdate()],
@@ -1041,8 +1060,8 @@ test('software page keeps readable apps actionable when the desktop source is pa
   const zh = renderView(mutate)
   assert.match(zh, /Readable App/)
   assert.match(zh, /预览卸载/, 'readable app keeps its uninstall action')
-  assert.ok(zh.indexOf('Readable App') < zh.indexOf('暂不能处理'), 'readable app stays in the actionable list')
-  assert.ok(zh.indexOf('Blocked App') > zh.indexOf('暂不能处理'), 'blocked app stays in the collapsed section')
+  assert.ok(zh.indexOf('Readable App') < zh.indexOf('需要手动处理'), 'readable app stays in the actionable list')
+  assert.ok(zh.indexOf('Blocked App') > zh.indexOf('需要手动处理'), 'blocked app stays in the collapsed section')
   assert.match(zh, /部分应用无法读取/)
 })
 
@@ -1060,12 +1079,50 @@ test('software page reports when every source failed instead of an empty result'
 test('software page sorts actionable items by name and groups blocked ones by reason', () => {
   const mutate = cases.find(([name]) => name === 'software-grouped')[1]
   const zh = renderView(mutate)
-  assert.ok(zh.includes('暂不能处理'), 'blocked section summary')
+  assert.ok(zh.includes('需要手动处理'), 'blocked section summary')
   assert.ok(zh.indexOf('Alpha App') < zh.indexOf('Zeta App'), 'actionable items sorted by name')
-  assert.ok(zh.indexOf('Zeta App') < zh.indexOf('暂不能处理'), 'actionable items come before the blocked section')
-  assert.ok(zh.indexOf('Running App') > zh.indexOf('暂不能处理'), 'blocked items stay inside the collapsed section')
-  assert.ok(zh.indexOf('应用正在运行或无法确认运行状态') < zh.indexOf('系统组件受保护'), 'blocked groups follow the fixed reason order')
+  assert.ok(zh.indexOf('Zeta App') < zh.indexOf('需要手动处理'), 'actionable items come before the blocked section')
+  assert.ok(zh.indexOf('Running App') > zh.indexOf('需要手动处理'), 'blocked items stay inside the collapsed section')
+  assert.ok(zh.indexOf('应用正在运行') < zh.indexOf('系统组件受保护'), 'blocked groups follow the fixed reason order')
   const en = renderView(mutate, 'en')
-  assert.ok(en.includes('Not actionable yet'), 'english blocked section summary')
+  assert.ok(en.includes('Needs manual handling'), 'english blocked section summary')
   assert.ok(en.indexOf('Alpha App') < en.indexOf('Zeta App'), 'english actionable items sorted by name')
+})
+
+test('software page explains that blocked items are handled outside the panel', () => {
+  const mutate = cases.find(([name]) => name === 'software-grouped')[1]
+  assert.match(renderView(mutate), /这些条目本插件不会代跑卸载/)
+  assert.match(renderView(mutate), /可以打开系统应用管理/)
+  assert.match(renderView(mutate, 'en'), /The panel does not run these uninstallers/)
+})
+
+test('software page names an unreadable process snapshot instead of claiming the app runs', () => {
+  const mutate = cases.find(([name]) => name === 'software-process-unknown')[1]
+  const zh = renderView(mutate)
+  assert.match(zh, /无法读取进程列表/)
+  assert.ok(!zh.includes('应用正在运行，退出后重新扫描'), 'an unknown snapshot is not reported as a running app')
+  assert.match(renderView(mutate, 'en'), /process list could not be read/)
+})
+
+test('software page shows estimated install sizes and sorts by them on demand', () => {
+  const ready = cases.find(([name]) => name === 'software-sizes')[1]
+  const zh = renderView(ready)
+  assert.match(zh, /安装体积（估算）/)
+  assert.match(zh, /2\.00G/)
+  assert.match(zh, /≥ 1\.0M/)
+  assert.match(zh, /≥ 5\.0M\*/, 'installer-reported sizes are marked')
+  assert.match(zh, /安装体积只统计安装目录/)
+  assert.ok(zh.indexOf('Big App') < zh.indexOf('Registry App'), 'default order is by name')
+  const sorted = renderView(cases.find(([name]) => name === 'software-sizes-sorted')[1])
+  assert.ok(sorted.indexOf('Big App') < sorted.indexOf('Registry App'), '2 GB comes first when sorted by size')
+  assert.ok(sorted.indexOf('Registry App') < sorted.indexOf('Small App'))
+  assert.ok(sorted.indexOf('Small App') < sorted.indexOf('Unknown App'), 'unknown sizes sort last')
+  assert.match(sorted, /↓/)
+  assert.match(renderView(ready, 'en'), /Install size \(est\.\)/)
+})
+
+test('software page shows measurement progress before install sizes are ready', () => {
+  const pending = renderView(cases.find(([name]) => name === 'software-sizes-pending')[1])
+  assert.match(pending, /统计中 1\/4/)
+  assert.ok(pending.includes('…'), 'the size header is not sortable yet')
 })

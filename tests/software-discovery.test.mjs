@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import path from 'node:path'
-import { discoverSoftware } from '../lib/software-discovery.js'
+import { discoverSoftware, parseVendorUninstall } from '../lib/software-discovery.js'
 const manager = (id, provider = 'npm') => ({ id, provider, file: '/demo/' + id + '/node', prefixArgs: [], stamps: [], bin: '/demo/' + id })
 
 test('a missing global npm prefix means no global packages, not a broken source', async () => {
@@ -110,4 +110,105 @@ test('a start menu lookup failure is a warning and resource packages stay protec
   const resource = result.items.find(item => item.identityName === 'Microsoft.LanguageResource')
   assert.equal(resource.executable, false)
   assert.equal(resource.blockReason, 'protected_system')
+})
+
+test('vendor uninstall strings are parsed into one executable plus argv, never a shell', () => {
+  assert.deepEqual(parseVendorUninstall('"C:\\Program Files\\Git\\unins000.exe" /VERYSILENT'), { kind: 'vendor', file: 'C:\\Program Files\\Git\\unins000.exe', args: ['/VERYSILENT'] })
+  assert.deepEqual(parseVendorUninstall('C:\\Program Files\\7-Zip\\Uninstall.exe'), { kind: 'vendor', file: 'C:\\Program Files\\7-Zip\\Uninstall.exe', args: [] })
+  assert.deepEqual(parseVendorUninstall('MsiExec.exe /X{9E3B2247-66B4-47B2-8C65-986CC86ADEA6}'), { kind: 'msi', productCode: '{9E3B2247-66B4-47B2-8C65-986CC86ADEA6}' })
+  assert.equal(parseVendorUninstall('cmd /c del C:\\x'), null, 'a shell command is not an uninstaller')
+  assert.equal(parseVendorUninstall('rundll32.exe dfshim.dll,ShArpMaintain x'), null)
+  assert.equal(parseVendorUninstall('uninstall.exe /S'), null, 'relative paths are refused')
+  assert.deepEqual(parseVendorUninstall('C:\\a\\..\\b\\unins.exe'), { kind: 'vendor', file: 'C:\\b\\unins.exe', args: [] }, 'a path that resolves is normalized')
+  assert.equal(parseVendorUninstall('"C:\\a\\unins.exe /S'), null, 'unbalanced quotes are refused')
+  assert.equal(parseVendorUninstall('C:\\a\\unins.exe "unterminated'), null)
+  assert.equal(parseVendorUninstall(undefined), null)
+})
+
+test('a registered vendor uninstaller becomes runnable, interpreters stay blocked', { skip: process.platform !== 'win32' }, async () => {
+  const exe = process.execPath
+  const data = { errors: [], winGetFile: '', items: [
+    { key: 'arp-vendor', name: 'Demo Vendor', version: '1.0', location: 'C:\\Demo\\Vendor', scope: 'machine', action: '', blockReason: '', uninstallString: `"${exe}" --version` },
+    { key: 'arp-shell', name: 'Demo Shell', version: '1.0', location: 'C:\\Demo\\Shell', scope: 'machine', action: '', blockReason: '', uninstallString: 'cmd /c whoami' },
+    { key: 'arp-msi', name: 'Demo Msi', version: '1.0', location: 'C:\\Demo\\Msi', scope: 'machine', action: '', blockReason: '', uninstallString: 'MsiExec.exe /X{9E3B2247-66B4-47B2-8C65-986CC86ADEA6}' },
+  ] }
+  const result = await discoverSoftware({ platform: 'win32', managers: [], run: async () => JSON.stringify(data) })
+  const vendor = result.items.find(item => item.name === 'Demo Vendor')
+  assert.equal(vendor.executable, true)
+  assert.equal(vendor.command.kind, 'vendor')
+  assert.deepEqual(vendor.command.args, ['--version'])
+  assert.equal(vendor.action, 'vendor')
+  assert.ok(vendor.warnings.includes('vendor_uninstaller'))
+  const shell = result.items.find(item => item.name === 'Demo Shell')
+  assert.equal(shell.executable, false)
+  assert.equal(shell.blockReason, 'vendor_uninstaller_required')
+  const msi = result.items.find(item => item.name === 'Demo Msi')
+  assert.equal(msi.executable, true)
+  assert.deepEqual(msi.command, { kind: 'msi' })
+  assert.equal(msi.productCode, '{9E3B2247-66B4-47B2-8C65-986CC86ADEA6}')
+})
+
+test('a failed brew source does not block unrelated macOS apps', async () => {
+  const app = { key: 'com.demo.one', name: 'Demo', version: '1.0', location: '/Applications/Demo.app', bundleId: 'com.demo.one', blockReason: '', action: 'move-app' }
+  const result = await discoverSoftware({
+    platform: 'darwin',
+    managers: [manager('brew-a', 'brew')],
+    run: async (file) => {
+      if (file.includes('brew')) throw Object.assign(new Error('source_failed'), { code: 'source_failed' })
+      return JSON.stringify({ items: [app], errors: [] })
+    },
+  })
+  assert.equal(result.sources.find(source => source.name === 'brew').status, 'error')
+  const demo = result.items.find(item => item.name === 'Demo')
+  assert.equal(demo.blockReason, '')
+  assert.equal(demo.executable, true)
+})
+
+test('a cask that ships pkg/uninstall stanzas is still runnable by brew', async () => {
+  const data = { formulae: [], casks: [{ token: 'demo-app', name: ['Demo App'], installed: '1.0', artifacts: [{ pkg: ['Demo.pkg'] }] }] }
+  const result = await discoverSoftware({ desktop: false, managers: [manager('brew-a', 'brew')], run: async (_file, args) => args[0] === '--prefix' ? '/demo/brew' : JSON.stringify(data) })
+  const item = result.items.find(x => x.name === 'Demo App')
+  assert.equal(item.executable, true)
+  assert.equal(item.blockReason, '')
+  assert.ok(item.warnings.includes('vendor_scripts'))
+})
+
+test('a brew service only blocks when it is actually running', async () => {
+  const data = { formulae: [{ name: 'svc', installed: [{ version: '1.0', runtime_dependencies: [] }], service: { run: ['svc'] } }], casks: [] }
+  const stopped = await discoverSoftware({ desktop: false, managers: [manager('brew-a', 'brew')], run: async (_file, args) => args[0] === '--prefix' ? '/demo/brew' : args[0] === 'services' ? '[]' : JSON.stringify(data) })
+  assert.equal(stopped.items.find(x => x.name === 'svc').executable, true)
+  const started = await discoverSoftware({ desktop: false, managers: [manager('brew-a', 'brew')], run: async (_file, args) => args[0] === '--prefix' ? '/demo/brew' : args[0] === 'services' ? JSON.stringify([{ name: 'svc', status: 'started' }]) : JSON.stringify(data) })
+  assert.equal(started.items.find(x => x.name === 'svc').blockReason, 'service_requires_manual')
+  const unknown = await discoverSoftware({ desktop: false, managers: [manager('brew-a', 'brew')], run: async (_file, args) => { if (args[0] === '--prefix') return '/demo/brew'; if (args[0] === 'services') throw Object.assign(new Error('source_failed'), { code: 'source_failed' }); return JSON.stringify(data) } })
+  assert.equal(unknown.items.find(x => x.name === 'svc').blockReason, 'service_requires_manual', 'an unreadable service list stays fail-closed')
+})
+
+test('unknown dependency data only blocks the formula that lacks it', async () => {
+  const data = { formulae: [
+    { name: 'good', installed: [{ version: '1.0', runtime_dependencies: [] }] },
+    { name: 'odd', installed: [{ version: '1.0' }] },
+  ], casks: [] }
+  const result = await discoverSoftware({ desktop: false, managers: [manager('brew-a', 'brew')], run: async (_file, args) => args[0] === '--prefix' ? '/demo/brew' : JSON.stringify(data) })
+  assert.equal(result.items.find(x => x.name === 'good').executable, true)
+  assert.equal(result.items.find(x => x.name === 'odd').blockReason, 'dependencies_unknown')
+})
+
+test('installer-reported size is carried as a fallback hint', async () => {
+  const app = { key: 'arp-size', name: 'Sized App', version: '1.0', location: 'C:\\Demo\\Sized', scope: 'machine', action: '', blockReason: '', estimatedSizeKb: 12345 }
+  const result = await discoverSoftware({ platform: 'win32', managers: [], run: async () => JSON.stringify({ errors: [], winGetFile: '', items: [app] }) })
+  assert.equal(result.items[0].estimatedSizeKb, 12345)
+  assert.equal(result.items[0].sizeBytes, null, 'the measured size is filled in by the host later')
+  const bad = await discoverSoftware({ platform: 'win32', managers: [], run: async () => JSON.stringify({ errors: [], winGetFile: '', items: [{ ...app, key: 'arp-size-2', estimatedSizeKb: 'oops' }] }) })
+  assert.equal(bad.items[0].estimatedSizeKb, null)
+})
+
+test('a linked global npm package is runnable with a warning', async () => {
+  const result = await discoverSoftware({
+    desktop: false,
+    managers: [manager('node-a')],
+    run: async (_file, args) => args[0] === 'prefix' ? process.cwd() : JSON.stringify({ dependencies: { hello: { version: '1.0.0', link: true } } }),
+  })
+  const item = result.items.find(x => x.name === 'hello')
+  assert.equal(item.executable, true)
+  assert.ok(item.warnings.includes('linked_package'))
 })

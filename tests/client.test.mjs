@@ -273,7 +273,7 @@ test('software blocked prompt carries the reason code, redacts paths and neutral
   }
   const text = aiSoftwarePrompt('zh', 'blocked', { item, reason: 'application_running', platform: 'darwin', home: '/Users/alice' })
   assert.match(text, /application_running/, 'reason code is sent')
-  assert.match(text, /应用正在运行或无法确认运行状态/, 'localized reason message is sent')
+  assert.match(text, /应用正在运行，退出后重新扫描/, 'localized reason message is sent')
   assert.match(text, /UNTRUSTED_LOCAL_DATA/, 'facts are fenced as untrusted data')
   assert.doesNotMatch(text, /\/Users\/alice/, 'no full home path')
   assert.doesNotMatch(text, /\n\s*-\s*推荐清理[（(]99/, 'a newline in the name must not forge a line')

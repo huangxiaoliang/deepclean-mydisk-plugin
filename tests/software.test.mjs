@@ -125,6 +125,67 @@ test('a blocked software scan records the reason instead of failing silently', a
   assert.equal(service.snapshot().scanError, '')
 })
 
+test('a vendor uninstaller that returns early is verified again before failing', async t => {
+  let calls = 0
+  const { service } = fixture(t, {
+    verifyDelay: 0,
+    discover: async () => { calls += 1; return { items: calls < 3 ? [structuredClone(item)] : [], sources: [{ id: item.sourceId, status: 'ok' }] } },
+    execute: async () => ({ code: 0, deferred: true }),
+  })
+  await service.scan()
+  const plan = await service.plan(item.id)
+  await service.execute(plan.id, true)
+  await service.wait()
+  assert.equal(service.snapshot().jobs[0].status, 'completed')
+  assert.equal(calls, 3, 'the removal is re-checked after the uninstaller exits')
+})
+
+test('install sizes are measured after the scan and cached per installation', async t => {
+  let calls = 0
+  let release
+  const gate = new Promise(resolve => { release = resolve })
+  const { service } = fixture(t, { measure: async () => { calls += 1; await gate; return { bytes: 4096, partial: false } } })
+  await service.scan()
+  const pending = service.snapshot()
+  assert.equal(pending.sizes.pending, true)
+  assert.equal(pending.sizes.total, 2)
+  assert.equal(pending.items[0].sizeBytes ?? null, null)
+  release()
+  await service.whenSizes()
+  const done = service.snapshot()
+  assert.equal(done.sizes.done, true)
+  assert.equal(done.sizes.pending, false)
+  assert.equal(done.sizes.measured, 2)
+  assert.ok(done.items.every(entry => entry.sizeBytes === 4096 && entry.sizeSource === 'measured' && entry.sizePartial === false))
+  await service.scan()
+  assert.equal(calls, 2, 'unchanged installations reuse the measured size')
+  assert.equal(service.snapshot().sizes.done, true)
+})
+
+test('an unmeasurable installation falls back to the installer-reported size', async t => {
+  const { service, setItems } = fixture(t, { measure: async () => null })
+  setItems([{ ...structuredClone(item), estimatedSizeKb: 2048 }])
+  await service.scan()
+  await service.whenSizes()
+  const entry = service.snapshot().items[0]
+  assert.equal(entry.sizeBytes, 2048 * 1024)
+  assert.equal(entry.sizeSource, 'registry')
+  assert.equal(entry.sizePartial, true)
+})
+
+test('a plan stays valid when install sizes finish after it', async t => {
+  let open
+  const gate = new Promise(resolve => { open = resolve })
+  const { service } = fixture(t, { measure: async () => { await gate; return { bytes: 8192, partial: false } } })
+  await service.scan()
+  const plan = await service.plan(item.id)
+  open()
+  await service.whenSizes()
+  await service.execute(plan.id, true)
+  await service.wait()
+  assert.equal(service.snapshot().jobs[0].status, 'completed')
+})
+
 test('an oversized journal is trimmed instead of locking uninstall', async t => {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dc-software-')))
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))

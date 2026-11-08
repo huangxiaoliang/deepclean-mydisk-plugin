@@ -1,5 +1,16 @@
 # deepclean-mydisk 插件变更
 
+## 0.14.5 — 2026-11-08
+- 修复（软件扫描，Windows）：读取注册表 `UninstallString` 并解析成「单个绝对 `.exe` + argv」的官方卸载器；`cmd`/`powershell`/`rundll32` 等解释器、相对路径、UNC 与无法解析的字符串保持 `vendor_uninstaller_required`；`msiexec /X`/`/I` 走 MSI 分支。计划展示完整命令，执行前用文件戳核对，厂商卸载器提前返回时在 1.5s×3 内重复核验再判 `still_installed`
+- 新增 `vendor` 执行器与 `parseVendorUninstall`；执行边界拒绝解释器与整串命令行
+- 修复（软件判定，Windows）：`SystemComponent=1` 只对 Microsoft 组件生效；运行时名称改为词首匹配；宿主自身继续受保护；单个坏注册表键、单个坏 Appx 包不再丢掉整个来源
+- 修复（软件判定，macOS）：brew 源失败不再把整张桌面清单标成 `source_unavailable`；cask 的 `pkg`/`uninstall`/`installer` stanza 交由 `brew uninstall --cask`；服务仅在 `brew services` 报告 started 时阻挡；依赖信息按 formula 判定；`ps` 失败改为独立原因 `process_snapshot_unavailable`；npm 链接包可卸载并保留提示
+- 界面（软件页）：不可执行分区改为「需要手动处理」并说明本插件不代跑卸载；新增 `process_snapshot_unavailable`、`vendor_uninstaller`、`unsafe_uninstaller` 的中英文文案
+- 软件页：可执行列表新增「安装体积（估算）」列与列头排序。默认按名称升序；体积在扫描后**后台**测量（并发 4、单项 250ms / 总预算 20s），表头显示 `统计中 n/m`，完成后该列可点击并在 `↓` / `↑` 间切换；未知体积排最后
+- 体积来源：优先实测安装目录（沿用 `measureSoftwareInstall` 的符号链接/云盘/跨卷保护与硬链接去重）；没有可用目录或测量失败时回退注册表 `EstimatedSize`，并标注 `*`；预算截断显示 `≥`
+- 修复（计划身份）：计划与执行的身份比较改为只比 `id/fingerprint/location/executable`，避免后台统计晚到把合法计划误判成 `installation_changed`
+- 测试 369（macOS 按 369 总数应为 365 pass / 4 skip；Windows 按 369 总数应为 360 pass / 9 skip，以 CI 实测为准）
+
 ## 0.14.3 — 2026-11-08
 - 新增（市场索引）：自建 format-1 插件索引 `docs/market/index.json`，条目的 `homepage` 直接指向 GitHub README（示例条目可删）；`docs/market/README.md` 说明本地预览、jsDelivr 托管、profile 配置与字段规则；`scripts/update-market-index.mjs` 从 npm registry 刷新版本与 `publishTimestamp`（支持 `--check` / `--dry-run`）；`.github/workflows/market-index.yml` 在发版、每日 06:00（Asia/Shanghai）与手动触发时刷新并提交索引
 - 文档（市场详情页）：`docs/plugin/DETAIL.zh.md` / `DETAIL.en.md` 与 README 对齐重写——同一组 CI / Windows 验收 / npm / License / 平台徽章，安装、界面结构、功能、安全边界、已知限制、反馈与支持逐节对应，中英各一份；保留包内截图（首页 / 清理 / 移动）
